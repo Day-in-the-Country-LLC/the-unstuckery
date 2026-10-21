@@ -1,0 +1,116 @@
+{
+  "title": "Synthetic seven-question writing review",
+  "subject": "Test",
+  "reviewMode": "mastery",
+  "sourceMaterial": "Synthetic passage about George, Lennie, and Candy for test coverage only. No student work.",
+  "concepts": [
+    {
+      "id": "reading",
+      "label": "Reading",
+      "goal": "Use the synthetic passage",
+      "targetCorrect": 1,
+      "targetSessions": 1
+    },
+    {
+      "id": "writing",
+      "label": "Writing",
+      "goal": "Explain using complete sentences",
+      "targetCorrect": 1,
+      "targetSessions": 1
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 1.",
+      "rubric": "Synthetic benchmark 1.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q2",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 2.",
+      "rubric": "Synthetic benchmark 2.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q3",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 3.",
+      "rubric": "Synthetic benchmark 3.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q4",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 4.",
+      "rubric": "Synthetic benchmark 4.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q5",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 5.",
+      "rubric": "Synthetic benchmark 5.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q6",
+      "conceptId": "reading",
+      "type": "rubric",
+      "prompt": "Synthetic reading question 6.",
+      "rubric": "Synthetic benchmark 6.",
+      "required": true,
+      "hintSteps": [
+        "Read the synthetic passage.",
+        "Explain the relevant detail."
+      ]
+    },
+    {
+      "id": "q18",
+      "conceptId": "writing",
+      "type": "rubric",
+      "prompt": "Write 8\u201312 sentences comparing the three synthetic characters.",
+      "rubric": "Explain all three characters with evidence in at least eight qualified sentences.",
+      "required": true,
+      "hintSteps": [
+        "Plan a point about each character."
+      ],
+      "writingRequirements": {
+        "minQualifiedSentences": 8,
+        "expectedSentenceRange": "8\u201312",
+        "requiredCoverage": [
+          "George",
+          "Lennie",
+          "Candy"
+        ]
+      }
+    }
+  ]
+}

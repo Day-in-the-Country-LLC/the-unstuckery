@@ -1,0 +1,20 @@
+.photo-dialog{width:min(880px,94vw)}
+.photo-upload{padding:20px;background:#f3f6f0;border-radius:14px;margin:16px 0 24px}
+.photo-file-label{display:block;font-weight:600;margin:16px 0 6px}
+.photo-file-label input{display:block;width:100%;margin-top:8px;padding:12px;background:white;border:1px solid #bdc8bb;border-radius:8px}
+.photo-previews{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}
+.photo-previews figure{margin:0;max-width:190px}
+.photo-previews img{display:block;max-width:190px;width:100%;height:160px;object-fit:contain;background:white;border:1px solid #d7dfd2;border-radius:8px}
+.photo-previews a{max-width:190px}
+.photo-previews figcaption{margin-top:6px}
+.photo-submission{padding:8px 0 20px}
+.photo-problem{border-left:4px solid #97b99a;background:#f6f8f3;padding:16px;margin:14px 0;border-radius:6px}
+.photo-problem.retry{border-color:#ce9e4a;background:#fffaf0}
+.photo-problem.unclear{border-color:#9ba9b4;background:#f4f6f8}
+.photo-problem h4{margin:0 0 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.photo-problem p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}
+.photo-error{color:#a13325}
+
+.photo-question-label{display:block;margin:14px 0;font-weight:600}
+.photo-question-label input{display:block;margin-top:8px;width:100%;padding:12px;border:1px solid #bdc8bb;border-radius:8px}
+.photo-problem.guidance{border-color:#679ba5;background:#f0f7f8}

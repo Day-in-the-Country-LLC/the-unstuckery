@@ -1,0 +1,36 @@
+# Personal state and credentials never belong in the repository or release.
+data/
+*.sqlite3*
+*.db
+.assistant-token
+.server-lock
+.env
+*.env
+*.pem
+*.key
+*.log
+canvas-credentials/
+private/
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv*
+build/
+dist/
+*.dmg
+*.zip
+
+# Drive memory and local workspace selections
+River App Memory/
+*.river
+river-memory.json
+storage.json
+workspaces/
+
+# Terraform deployment state and per-install configuration
+.terraform/
+*.tfstate*
+*.tfplan
+tfplan
+*.tfvars
+cloud-config.json

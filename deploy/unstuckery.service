@@ -1,0 +1,24 @@
+[Unit]
+Description=The Unstuckery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unstuckery
+Group=unstuckery
+WorkingDirectory=/opt/unstuckery/app
+EnvironmentFile=-/srv/unstuckery/private/installation.env
+ExecStart=/opt/unstuckery/venv/bin/python /opt/unstuckery/app/server.py --data-dir /srv/unstuckery/data --cloud-config /srv/unstuckery/private/cloud-config.json --ai-review --review-config /srv/unstuckery/private/review.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/unstuckery
+
+[Install]
+WantedBy=multi-user.target

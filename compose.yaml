@@ -1,0 +1,23 @@
+# Linux host networking keeps the Python server on loopback behind Caddy.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    network_mode: host
+    env_file: ./private/installation.env
+    volumes:
+      - ./data:/data
+      - ./private:/private:ro
+    security_opt: ["no-new-privileges:true"]
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    env_file: ./private/installation.env
+    volumes:
+      - ./deploy/Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

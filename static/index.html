@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#234f42">
+  <title>The Unstuckery</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/practice.css">
+  <link rel="stylesheet" href="/canvas.css">
+  <link rel="stylesheet" href="/photos.css">
+  <script src="/memory.js" defer></script>
+  <script src="/timer-audio.js" defer></script>
+  <script src="/app.js" defer></script>
+  <script src="/practice.js" defer></script>
+  <script src="/backlog.js" defer></script>
+  <script src="/canvas.js" defer></script>
+  <script src="/photos.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to today’s task</a>
+  <header class="site-header">
+    <a class="brand" href="#today" aria-label="The Unstuckery, Today"><span class="brand-mark" aria-hidden="true">u.</span><span>The Unstuckery<span class="brand-sub">A little at a time.</span></span></a>
+    <nav aria-label="Main"><button id="today-tab" class="nav-tab active" aria-current="page">Today</button><button id="parent-tab" class="nav-tab">Parent review <span aria-hidden="true">↗</span></button></nav>
+  </header>
+  <div id="connection" class="connection" role="status" hidden></div>
+  <main id="main" tabindex="-1"><div class="loading-card">Getting your day ready…</div></main>
+  <footer class="site-footer"><span>One thing, then the next.</span><span id="saved-status">Saved in The Unstuckery</span></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="action-dialog" aria-labelledby="dialog-title"><div id="dialog-body"></div></dialog>
+</body>
+</html>
