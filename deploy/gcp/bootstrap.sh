@@ -1,5 +1,7 @@
 #!/bin/bash
 set -eu
+# Initialization runs once; later boots must keep the configured services enabled.
+if [ -f /var/lib/unstuckery-bootstrap-ready ]; then exit 0; fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y python3-venv caddy ca-certificates unattended-upgrades
