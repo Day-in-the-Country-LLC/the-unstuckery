@@ -39,6 +39,9 @@
     if(!getApp())return;
     const host=document.getElementById(detail.view==='parent'?'practice-parent':'practice-today');
     if(!host)return;
+    // The open practice page owns its refreshes. Do not consume a review update
+    // here without rendering it, which would leave the review poll seeing no change.
+    if(detail.view!=='parent'&&pageQuiz&&!page.hidden)return;
     const version=++mountId;
     loading=true;
     try{
@@ -47,7 +50,7 @@
         api(parentMode?'/api/parent/practice':'/api/practice'),
         api('/api/ai-review').catch(()=>({enabled:false,jobs:{}}))
       ]);
-      if(version!==mountId||!host.isConnected)return;
+      if(version!==mountId||!host.isConnected||(!parentMode&&pageQuiz&&!page.hidden))return;
       practice=snapshot;aiReview=review;
       if(!parentMode && modal.open && modalQuiz && !editor && !modal.querySelector('#practice-answer,.mastery-answer'))renderQuiz();
       if(!host.isConnected)return;
@@ -330,22 +333,42 @@
       }
     }catch(e){getApp().toast(e instanceof SyntaxError?'That prepared quiz is not valid JSON. Ask your assistant to check it.':e.message,true);}finally{delete form.dataset.submitting;if(submit)submit.disabled=false;}
   });
+  function capturePracticeInputs(root){
+    return [...root.querySelectorAll('.mastery-answer,.tutor-chat-form')].map(form=>{
+      const field=form.elements.answer||form.elements.message;
+      return {quizId:form.dataset.quiz,questionId:form.elements.questionId.value,name:field.name,value:field.value,
+        focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd,
+        direction:field.selectionDirection,scroll:field.scrollTop};
+    });
+  }
+  function restorePracticeInputs(root,saved){
+    for(const form of root.querySelectorAll('.mastery-answer,.tutor-chat-form')){
+      const field=form.elements.answer||form.elements.message;
+      const previous=saved.find(item=>item.quizId===form.dataset.quiz&&item.questionId===form.elements.questionId.value&&item.name===field.name);
+      if(!previous)continue;
+      field.value=previous.value;
+      if(previous.focused){field.focus({preventScroll:true});field.setSelectionRange(previous.start,previous.end,previous.direction);}
+      field.scrollTop=previous.scroll;
+    }
+  }
   async function pollReviews(){
     const onPage=Boolean(pageQuiz&&!page.hidden),root=onPage?page:modal,quizId=onPage?pageQuiz:modalQuiz;
     if(reviewPollBusy||!aiReview.enabled||(!onPage&&!modal.open)||parentMode||!quizId||!root.querySelector('.mastery-answer, .tutor-panel, [aria-label="Quiz completion summary"]'))return;
-    if(root.contains(document.activeElement)&&document.activeElement.matches('input,textarea,select'))return;
+    if(root.querySelector('form[data-submitting]'))return;
     reviewPollBusy=true;
     try{
       const [data,review]=await Promise.all([api('/api/practice'),api('/api/ai-review')]);
-      if((!onPage&&!modal.open)||parentMode||(onPage?pageQuiz:modalQuiz)!==quizId||(root.contains(document.activeElement)&&document.activeElement.matches('input,textarea,select')))return;
+      if((!onPage&&!modal.open)||parentMode||(onPage?pageQuiz:modalQuiz)!==quizId||root.querySelector('form[data-submitting]'))return;
       const before=practice.quizzes.find(q=>q.id===quizId),after=data.quizzes.find(q=>q.id===quizId);
       if(!after?.mastery)return;
       const beforeChats=(practice.tutorChats||[]).filter(chat=>chat.quizId===quizId),afterChats=(data.tutorChats||[]).filter(chat=>chat.quizId===quizId);
       const hasChanged=JSON.stringify([before?.mastery,beforeChats,aiReview])!==JSON.stringify([after.mastery,afterChats,review]);
       practice=data;aiReview=review;
       if(hasChanged){
+        const inputs=capturePracticeInputs(root);
         if(onPage)renderMastery(after,false,currentSequentialStep(before)===currentSequentialStep(after));
         else {const scroll=modal.scrollTop;renderMastery(after,false);modal.scrollTop=scroll;}
+        restorePracticeInputs(root,inputs);
       }
     }catch{}finally{reviewPollBusy=false;}
   }

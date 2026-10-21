@@ -50,8 +50,8 @@ test('automatic review moves the viewport to a newly opened step but preserves i
  for(const advances of [false,true]){
   const quiz=status=>({id:'test',sequential:true,mastery:{questions:[{questionId:'one',status},{questionId:'two',status:status==='approved'?'unanswered':'locked'}]}});
   const before=quiz('pending'),after=quiz(advances?'approved':'retry'),renders=[];
-  const page={hidden:false,querySelector:()=>true,contains:()=>false};
-  const scope={pageQuiz:'test',modalQuiz:'test',page,modal:{},parentMode:false,reviewPollBusy:false,aiReview:{enabled:true,jobs:{}},practice:{quizzes:[before]},document:{activeElement:null},api:async path=>path==='/api/practice'?{quizzes:[after]}:{enabled:true,jobs:{}},renderMastery:(...args)=>renders.push(args)};
+  const page={hidden:false,querySelector:selector=>selector==='form[data-submitting]'?null:true,contains:()=>false};
+  const scope={pageQuiz:'test',modalQuiz:'test',page,modal:{},parentMode:false,reviewPollBusy:false,aiReview:{enabled:true,jobs:{}},practice:{quizzes:[before]},document:{activeElement:null},capturePracticeInputs:()=>[],restorePracticeInputs:()=>{},api:async path=>path==='/api/practice'?{quizzes:[after]}:{enabled:true,jobs:{}},renderMastery:(...args)=>renders.push(args)};
   vm.createContext(scope);
   vm.runInContext(source.slice(source.indexOf('  function currentSequentialStep('),source.indexOf('  function usePreviousResponse(')),scope);
   vm.runInContext(source.slice(source.indexOf('  async function pollReviews('),source.indexOf('  setInterval(pollReviews')),scope);
