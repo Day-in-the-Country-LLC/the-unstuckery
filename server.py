@@ -357,7 +357,9 @@ class RiverStore:
         return self.view_task(task)
 
     def drafts(self):
-        raw = json.loads((ROOT/'draft-plan.json').read_text())
+        draft_path = self.data_dir / 'draft-plan.json'
+        if not draft_path.exists(): draft_path = ROOT / 'draft-plan.json'
+        raw = json.loads(draft_path.read_text())
         raw['items'] = [t for t in raw['items'] if t['id'] not in self.state['importedDrafts']]
         return raw
 
@@ -664,7 +666,10 @@ class RiverStore:
         raise AppError('That action was not found.',404)
 
 class RiverHandler(BaseHTTPRequestHandler):
-    server_version='RiverLocal/1.0'
+    server_version='Unstuckery/1.0'
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(30)
     def log_message(self, fmt, *args):
         # Never log request bodies, cookies or credentials.
         pass
@@ -884,6 +889,27 @@ class RiverHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self): self.serve('OPTIONS')
 
 class RiverServer(ThreadingHTTPServer):
+    request_queue_size = 32
+    def __init__(self, *args, **kwargs):
+        self.request_slots = threading.BoundedSemaphore(32)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
+
     def server_close(self):
         if hasattr(self,'canvas'):
             self.canvas.close()
@@ -912,7 +938,7 @@ def create_server(data_dir=None, port=4317, now=None, ai_review=False, review_co
             from cloud_auth import CloudAuth
             server.store.cloud_auth = CloudAuth(server.store, cloud_config)
         from canvas import CanvasConnection
-        server.canvas=CanvasConnection(server.store,canvas_transport,canvas_vault)
+        server.canvas=CanvasConnection(server.store,canvas_transport,canvas_vault or (directory/'canvas-credentials.json' if cloud_config else None))
         if storage:
             storage.checkpoint(server.store, force=True)
             if storage.error:

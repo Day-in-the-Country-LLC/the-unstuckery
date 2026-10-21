@@ -92,7 +92,7 @@ def read_config(path=None):
             values[key] = value
     # A prepared but blank private file means setup is pending; do not use an inherited development credential.
     key = values.get('OPENAI_API_KEY', '') if path.exists() else os.environ.get('RIVER_OPENAI_API_KEY', '')
-    model = values.get('OPENAI_REVIEW_MODEL', 'gpt-6-astra')
+    model = values.get('OPENAI_REVIEW_MODEL', 'gpt-6.1-sol')
     limit = int(values.get('RIVER_AI_MAX_REVIEWS_PER_DAY', '30'))
     if not 1 <= limit <= 100: raise ValueError('Set the daily review limit between 1 and 100.')
     if not re.fullmatch(r'[a-zA-Z0-9._:-]{1,100}', model): raise ValueError('Choose a valid review model ID.')

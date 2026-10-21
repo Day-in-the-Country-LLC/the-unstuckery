@@ -85,7 +85,7 @@ Keep your private Terraform state and variables outside the public repository. D
 
 `private/installation.env` accepts `UNSTUCKERY_TIMEZONE`, `UNSTUCKERY_CANVAS_ORIGIN`, and `UNSTUCKERY_DOMAIN`. The Canvas origin must be the exact HTTPS origin for the school. Credentials are stored privately, and outbound Canvas operations are restricted to read-only endpoints at that origin. Parent/student Google sign-in is separate from school authentication. A school-issued Canvas OAuth client or permitted parent API token may be needed; do not assume every school permits integration.
 
-Exercise creation/import is available in Parent review. An external assistant can also use `assistant.py` and the private `.assistant-token` to prepare drafts; it cannot publish or use parent controls. For a cloud installation, keep that token private and use the HTTPS URL explicitly.
+Exercise creation/import is available in Parent review. An external assistant can also use `assistant.py` and the private `.assistant-token` to prepare drafts; it cannot publish or use parent controls. For a cloud installation, keep that token private, save the exact HTTPS origin in `.assistant-origin` beside the token, and use `--url` with that origin. Redirects are refused to prevent forwarding the credential elsewhere.
 
 ## Back up, update, and restore
 

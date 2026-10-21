@@ -7,8 +7,12 @@ from pathlib import Path
 import re
 import sys
 from urllib.parse import urlparse, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 ROOT=Path(__file__).resolve().parent
 
@@ -48,8 +52,12 @@ def main():
         except RuntimeError as exc:
             p.error(str(exc))
     url=urlparse(args.url)
-    if url.scheme!='http' or url.hostname not in ('127.0.0.1','localhost') or url.username or url.password or url.path not in ('','/') or url.query or url.fragment:
-        p.error('Use only this Mac’s http://127.0.0.1:PORT or http://localhost:PORT address.')
+    pinned=args.data_dir/'.assistant-origin'
+    remote=pinned.read_text().strip() if pinned.exists() else ''
+    local=url.scheme=='http' and url.hostname in ('127.0.0.1','localhost')
+    cloud=url.scheme=='https' and bool(remote) and args.url.rstrip('/')==remote.rstrip('/')
+    if not (local or cloud) or url.username or url.password or url.path not in ('','/') or url.query or url.fragment:
+        p.error('Use loopback HTTP, or pin your exact HTTPS origin in .assistant-origin beside the private assistant token.')
     if getattr(args,'item_id',None) and not re.fullmatch(r'[a-zA-Z0-9_-]+',args.item_id):
         p.error('Use the exact item ID returned by state.')
     try:
@@ -80,7 +88,7 @@ def main():
             json.loads(data)
         token=(args.data_dir/'.assistant-token').read_text().strip()
         request=Request(args.url.rstrip('/')+path,data=data,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
-        with urlopen(request,timeout=10) as response:
+        with build_opener(NoRedirect()).open(request,timeout=10) as response:
             result=json.load(response)
         print(json.dumps(result,indent=2,ensure_ascii=False))
     except FileNotFoundError:
