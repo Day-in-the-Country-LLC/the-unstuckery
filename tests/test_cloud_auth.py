@@ -78,6 +78,22 @@ class CloudTests(unittest.TestCase):
         for origin in (None,'https://attacker.example'):
             self.assertEqual(self.call('/api/parent/accounts',{'email':'student@example.com'},origin=origin)[0],403)
         self.assertEqual(self.call('/api/state',cookie='__Host-unstuckery=forged')[0],401)
+    def test_google_json_cookie_does_not_hide_login_or_session(self):
+        _,challenge,_=self.call('/api/auth/config')
+        self.claims={'sub':'parent-sub','email':'parent@example.com','email_verified':True,'hd':'example.com',
+                     'iss':'https://accounts.google.com','aud':CONFIG['googleClientId'],
+                     'exp':time.time()+3600,'nonce':challenge['nonce']}
+        google_cookie='g_state={"i_l":0,"i_ll":1234}; '
+        status,_,_=self.call('/api/auth/google',{'credential':'x'*200},cookie=google_cookie+self.cookie)
+        self.assertEqual(status,200)
+        self.assertEqual(self.call('/parent',cookie=google_cookie+self.cookie)[0],200)
+        self.assertTrue(self.call('/api/auth',cookie=google_cookie+self.cookie)[1]['parent'])
+    def test_duplicate_session_or_challenge_cookies_are_rejected(self):
+        self.login()
+        self.assertEqual(self.call('/api/state',cookie=self.cookie+'; __Host-unstuckery=forged')[0],401)
+        self.call('/api/auth/config')
+        self.assertEqual(self.call('/api/auth/google',{'credential':'x'*200},
+                                  cookie=self.cookie+'; __Host-unstuckery-login=forged')[0],401)
     def test_assistant_role_preserved_without_parent_bypass(self):
         token=self.server.store.assistant_token
         self.assertEqual(self.call('/api/assistant/state',bearer=token)[0],200)

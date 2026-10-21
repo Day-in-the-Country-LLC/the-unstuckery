@@ -19,7 +19,6 @@ import sys
 sys.modules.setdefault("server", sys.modules[__name__])
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 from zoneinfo import ZoneInfo
 
@@ -686,14 +685,23 @@ class RiverHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def cookie_value(self, name):
+        # Google Identity can set an unquoted JSON g_state cookie. SimpleCookie
+        # stops parsing there, hiding any later session cookie. Read only our
+        # exact cookie name, and reject ambiguous or non-token values.
+        values = []
+        for header in self.headers.get_all('Cookie', []):
+            for part in header.split(';'):
+                key, separator, value = part.strip().partition('=')
+                if separator and key == name:
+                    values.append(value)
+        if len(values) == 1 and re.fullmatch(r'[A-Za-z0-9_-]{1,256}', values[0]):
+            return values[0]
+        return None
+
     def session(self):
-        cookie=SimpleCookie()
-        try:
-            cookie.load(self.headers.get('Cookie',''))
-            name = '__Host-unstuckery' if getattr(self.server.store, 'cloud_auth', None) else 'river_parent'
-            return cookie[name].value if name in cookie else None
-        except Exception:
-            return None
+        name = '__Host-unstuckery' if getattr(self.server.store, 'cloud_auth', None) else 'river_parent'
+        return self.cookie_value(name)
 
     def redirect(self, target):
         self.send_response(303)
@@ -846,9 +854,7 @@ class RiverHandler(BaseHTTPRequestHandler):
                     raise AppError('Please send a valid update.')
                 cookie=None
                 if cloud and path == '/api/auth/google':
-                    cookies = SimpleCookie(self.headers.get('Cookie', ''))
-                    login_cookie = cookies.get('__Host-unstuckery-login')
-                    token, target = cloud.login(body, login_cookie.value if login_cookie else '')
+                    token, target = cloud.login(body, self.cookie_value('__Host-unstuckery-login') or '')
                     cookie = cloud.cookie(token)
                     result = {'ok': True, 'redirect': target}
                 elif cloud and path == '/api/auth/logout':
