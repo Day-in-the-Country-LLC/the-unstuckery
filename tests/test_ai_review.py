@@ -109,6 +109,34 @@ class AIReviewTests(unittest.TestCase):
         self.assertEqual(a['grade'],'correct');self.assertEqual(b['grade'],'pending')
         self.assertEqual(jobs(self.store)[b['id']]['status'],'failed')
         self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),1)
+    def test_unlimited_reviews_ignore_daily_request_count(self):
+        worker=self.worker(limit=0);a=self.answer(1)
+        jobs(self.store)['earlier']={'status':'completed','tries':150,'date':self.store.today()}
+        worker.step();worker.step()
+        self.assertEqual(a['grade'],'correct')
+        self.assertEqual(jobs(self.store)[a['id']]['status'],'completed')
+    def test_removing_cap_resumes_saved_request_without_duplicate_submission(self):
+        worker=self.worker(limit=1);a=self.answer(1);b=self.answer(2)
+        worker.step();worker.step();worker.step()
+        self.assertEqual(jobs(self.store)[b['id']]['tries'],0)
+        worker.config_path.write_text('OPENAI_API_KEY=synthetic-test-key\nRIVER_AI_MAX_REVIEWS_PER_DAY=0\n')
+        worker.step();worker.step()
+        self.assertEqual(b['grade'],'correct')
+        self.assertEqual(len(self.store.state['practice']['attempts']),2)
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),2)
+    def test_removing_cap_does_not_retry_other_failures(self):
+        worker=self.worker(limit=0);a=self.answer(1)
+        jobs(self.store)[a['id']].update(status='failed',message='Provider unavailable.')
+        worker.step()
+        self.assertFalse(self.fake.calls)
+    def test_removing_cap_does_not_spend_on_stale_blocked_answer(self):
+        worker=self.worker(limit=1);a=self.answer(1);b=self.answer(2)
+        worker.step();worker.step();worker.step()
+        self.review(b,False)
+        worker.config_path.write_text('OPENAI_API_KEY=synthetic-test-key\nRIVER_AI_MAX_REVIEWS_PER_DAY=0\n')
+        worker.step();worker.step()
+        self.assertEqual(b['grade'],'incorrect')
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),1)
     def test_invalid_assessment_rolls_back_and_is_bounded(self):
         worker=self.worker();a=self.answer(1);worker.step()
         for i in range(3):
@@ -136,6 +164,16 @@ class SecretConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,{'OPENAI_API_KEY':'unrelated-development-credential'}):
             p=Path(tmp)/'review.env';p.write_text('OPENAI_API_KEY=\n');p.chmod(0o600)
             self.assertEqual(read_config(p)['key'],'')
+    def test_daily_limit_default_unlimited_and_invalid_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'review.env';p.write_text('');p.chmod(0o600)
+            self.assertEqual(read_config(p)['dailyLimit'],30)
+            for limit in (0,1,100):
+                p.write_text(f'RIVER_AI_MAX_REVIEWS_PER_DAY={limit}\n')
+                self.assertEqual(read_config(p)['dailyLimit'],limit)
+            for limit in (-1,101):
+                p.write_text(f'RIVER_AI_MAX_REVIEWS_PER_DAY={limit}\n')
+                with self.assertRaises(ValueError):read_config(p)
     def test_transport_is_fixed_to_openai_and_http_errors_are_redacted(self):
         from urllib.error import HTTPError
         client=AgentsClient('synthetic-test-key')

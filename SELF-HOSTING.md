@@ -81,7 +81,7 @@ Keep your private Terraform state and variables outside the public repository. D
 
 ## Settings and limits
 
-`private/review.env` accepts `OPENAI_API_KEY`, `OPENAI_REVIEW_MODEL`, and `RIVER_AI_MAX_REVIEWS_PER_DAY` (1–100). The default is 30 daily reviews; this is a usage guard, not a dollar budget. Provider billing limits are separate. Restart the server after changing these settings.
+`private/review.env` accepts `OPENAI_API_KEY`, `OPENAI_REVIEW_MODEL`, and `RIVER_AI_MAX_REVIEWS_PER_DAY` (0–100). Set it to `0` to allow unlimited daily reviews and tutor replies, billed to your own API key. Removing the cap also resumes saved requests that were blocked before reaching the provider. The default is 30 daily requests; this is a usage guard, not a dollar budget. Provider billing limits are separate. Restart the server after changing these settings.
 
 `private/installation.env` accepts `UNSTUCKERY_TIMEZONE`, `UNSTUCKERY_CANVAS_ORIGIN`, and `UNSTUCKERY_DOMAIN`. The Canvas origin must be the exact HTTPS origin for the school. Credentials are stored privately, and outbound Canvas operations are restricted to read-only endpoints at that origin. Parent/student Google sign-in is separate from school authentication. A school-issued Canvas OAuth client or permitted parent API token may be needed; do not assume every school permits integration.
 
