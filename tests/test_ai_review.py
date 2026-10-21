@@ -62,6 +62,15 @@ class AIReviewTests(unittest.TestCase):
         self.fake.session['required_actions'][0]['arguments']=dict(REVIEW,correct=False,feedback='Find a supporting detail.',hint='Look at the passage again.')
         worker.step();self.assertEqual(a['grade'],'incorrect')
         b=self.answer(1);self.assertNotEqual(a['id'],b['id']);self.assertEqual(jobs(self.store)[b['id']]['status'],'queued')
+    def test_identical_retry_never_starts_another_ai_request(self):
+        worker=self.worker();a=self.answer(1)
+        self.fake.session['required_actions'][0]['arguments']=dict(REVIEW,correct=False,feedback='Add a supporting detail.')
+        worker.step();worker.step()
+        saved=copy.deepcopy(self.store.state)
+        result=self.call('/api/practice/mastery/'+self.id+'/answer',{'questionId':'q1','answer':a['answer']})
+        self.assertTrue(result['duplicate']);self.assertEqual(self.store.state,saved)
+        worker.step()
+        self.assertEqual(sum(c[0]=='POST' and c[1]=='/agents/sessions' for c in self.fake.calls),1)
     def test_duplicate_tool_call_is_idempotent_even_after_restart(self):
         worker=self.worker();a=self.answer(1);worker.step()
         action=self.fake.session['required_actions'][0]

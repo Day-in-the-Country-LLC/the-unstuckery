@@ -9,14 +9,14 @@ function fixture(){
  const form=(name,value,question='one')=>{
   const field={name,value,selectionStart:2,selectionEnd:5,selectionDirection:'forward',scrollTop:12,
    matches:()=>true,focus:()=>scope.document.activeElement=field,setSelectionRange:(start,end,direction)=>Object.assign(field,{selectionStart:start,selectionEnd:end,selectionDirection:direction})};
-  return {dataset:{quiz:'test'},elements:{[name]:field,questionId:{value:question}}};
+  return {querySelector:()=>null,dataset:{quiz:'test'},elements:{[name]:field,questionId:{value:question}}};
  };
  const quiz=status=>({id:'test',sequential:true,mastery:{questions:[{questionId:'one',status}]}});
  Object.assign(scope,{
   page:{hidden:false,contains:()=>true,querySelector:selector=>selector==='form[data-submitting]'?null:true,querySelectorAll:()=>forms},
   practice:{quizzes:[quiz('pending')]},aiReview:{enabled:true,jobs:{}},
   api:async path=>path==='/api/practice'?{quizzes:[quiz('retry')]}:{enabled:true,jobs:{}},
-  currentSequentialStep:q=>q.mastery.questions[0].questionId,
+  answerFeedback:()=>{},currentSequentialStep:q=>q.mastery.questions[0].questionId,
   renderMastery:()=>{forms.splice(0,forms.length,form('answer','Saved answer'),form('message',''));}
  });
  vm.createContext(scope);vm.runInContext(helpers,scope);

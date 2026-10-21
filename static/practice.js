@@ -196,7 +196,7 @@
       const status=row.effort?.stopForTonight?'Saved · stop for tonight':row.status==='approved'?'Pass':row.status==='pending'?pendingText:row.status==='retry'?(q.sequential?'Not yet — try this step again':'Another try needed'):row.status==='scheduled_review'?`Returns ${dayLabel(row.revisit?.dueDate)}`:row.status==='revisit'?'Later review ready':'Ready for your answer';
       const revisitNote=row.status==='scheduled_review'?`<p class="revisit-note"><strong>Later learning check scheduled:</strong> This question will return ${esc(dayLabel(row.revisit?.dueDate))} because tutor help was used. It will not reopen again today.</p>`:row.status==='revisit'?'<p class="revisit-note"><strong>Later learning check:</strong> Try this question again from memory before opening the saved tutor conversation.</p>':'';
       const responses=row.responses.length?`<details class="response-history" ${!q.sequential&&row.status==='retry'?'open':''}><summary>Earlier responses (${row.responses.length})</summary>${row.responses.map(a=>`<div class="soft-panel"><p><strong>Your response:</strong> ${esc(a.answer)}</p><p style="white-space:pre-wrap">${esc(a.feedback)}</p>${a.hint?`<p><strong>Feedback hint:</strong> ${esc(a.hint)}</p>`:''}<p class="small muted">${esc(stamp(a.at))}</p></div>`).join('')}</details>`:'';
-      const answer=editable?`<form class="mastery-answer" data-quiz="${esc(q.id)}"><input type="hidden" name="sessionId" value="${esc(q.id)}"><input type="hidden" name="questionId" value="${esc(row.questionId)}"><label>Your answer<textarea name="answer" rows="4" required placeholder="Write your answer in your own words. Show your work when the question asks.">${q.sequential?esc(prior?.answer||''):row.effort&&prior?esc(prior.answer):''}</textarea></label><div class="button-row"><button class="button primary" type="submit">${row.effort?'Review':prior?'Submit another try':aiReview.enabled?'Submit for AI review':'Submit answer'}</button>${act('mastery-hint','Give me a hint',row.questionId,'outline')}</div><p class="saved-hint" id="mastery-hint-${esc(row.questionId)}" aria-live="polite">${esc(row.effort?.stopForTonight?'':row.hintHistory.at(-1)?.text||'')}</p></form>`:'';
+      const answer=editable?`<form class="mastery-answer" data-quiz="${esc(q.id)}"><input type="hidden" name="sessionId" value="${esc(q.id)}"><input type="hidden" name="questionId" value="${esc(row.questionId)}"><label>Your answer<textarea name="answer" rows="4" required placeholder="Write your answer in your own words. Show your work when the question asks.">${q.sequential?esc(prior?.answer||''):row.effort&&prior?esc(prior.answer):''}</textarea></label><p class="notice" data-answer-feedback role="status" hidden></p><div class="button-row"><button class="button primary" type="submit">${row.effort?'Review':prior?'Submit another try':aiReview.enabled?'Submit for AI review':'Submit answer'}</button>${act('mastery-hint','Give me a hint',row.questionId,'outline')}</div><p class="saved-hint" id="mastery-hint-${esc(row.questionId)}" aria-live="polite">${esc(row.effort?.stopForTonight?'':row.hintHistory.at(-1)?.text||'')}</p></form>`:'';
       const previous=q.sequential&&!prior&&row.previousAnswer?`<details class="response-history"><summary>Your passed response from step ${index}</summary><p style="white-space:pre-wrap">${esc(row.previousAnswer)}</p>${editable?act('use-previous-response','Use this as a starting point',row.questionId,'outline'):''}</details>`:'';
       return `<article class="practice-question-card" aria-labelledby="question-${esc(row.questionId)}"><div class="question-heading"><span>${q.sequential?'Step':'Question'} ${index+1}${q.sequential?` of ${required}`:''}</span><strong class="question-status ${row.status}">${esc(status)}</strong></div><h3 id="question-${esc(row.questionId)}" class="question-prompt">${esc(stripQuestionPreamble(row.prompt))}</h3>${row.effort?`<div class="notice" aria-live="polite"><strong>${row.effort.count} of 3 genuine efforts tonight</strong><p>${esc(row.effort.message)}</p><p>90 minutes is the total homework limit, not a target for this paragraph.</p></div>`:''}${revisitNote}${row.writingRequirements?`<p class="small muted">Writing target: ${esc(row.writingRequirements.expectedSentenceRange)} sentences, with at least ${row.writingRequirements.minQualifiedSentences} complete and useful sentences.</p>`:''}${row.status==='pending'&&job?.status==='failed'&&job.tries<3?act('retry-ai-review','Retry AI review',prior.id,'outline small'):''}${q.sequential&&prior?.feedback?`<div class="notice" role="status">${esc(prior.feedback)}</div>`:''}${q.sequential?'':responses}${answer}${previous}${q.sequential?responses:''}${tutorPanel(q,row)}</article>`;
     }).join('');
@@ -292,16 +292,29 @@
     target.disabled=true;
     try{await action(target.dataset.practice||'open',target.dataset.id||target.dataset.practiceOpen);}catch(e){getApp().toast(e.message,true);}finally{target.disabled=false;}
   });
-  modal.addEventListener('input',event=>{if(event.target.closest('#practice-editor'))resizeEditorFields();const form=event.target.closest('#practice-answer,.mastery-answer');if(form){try{(window.RiverMemory || localStorage).setItem(draftKey(form),form.elements.answer.value);}catch{}}});
-  page.addEventListener('input',event=>{const form=event.target.closest('.mastery-answer');if(form){try{(window.RiverMemory || localStorage).setItem(draftKey(form),form.elements.answer.value);}catch{}}});
+  function answerFeedback(form,message=''){
+    const notice=form.querySelector('[data-answer-feedback]');
+    if(notice){notice.textContent=message;notice.hidden=!message;}
+  }
+  async function submitMasteryAnswer(form,fields){
+    const result=await api(`/api/practice/mastery/${form.dataset.quiz}/answer`,'POST',{questionId:fields.get('questionId'),answer:fields.get('answer')});
+    if(result.duplicate){
+      answerFeedback(form,result.message||'This answer is unchanged. Use the feedback to revise it before submitting again.');
+      form.elements.answer.focus({preventScroll:true});
+      return false;
+    }
+    try{(window.RiverMemory || localStorage).removeItem(draftKey(form));}catch{}
+    return true;
+  }
+  modal.addEventListener('input',event=>{if(event.target.closest('#practice-editor'))resizeEditorFields();const form=event.target.closest('#practice-answer,.mastery-answer');if(form){answerFeedback(form);try{(window.RiverMemory || localStorage).setItem(draftKey(form),form.elements.answer.value);}catch{}}});
+  page.addEventListener('input',event=>{const form=event.target.closest('.mastery-answer');if(form){answerFeedback(form);try{(window.RiverMemory || localStorage).setItem(draftKey(form),form.elements.answer.value);}catch{}}});
   page.addEventListener('submit',async event=>{
     const form=event.target;if(!form.matches('.mastery-answer,.tutor-chat-form'))return;
     event.preventDefault();if(form.dataset.submitting)return;form.dataset.submitting='true';const f=new FormData(form),submit=form.querySelector('[type=submit]');if(submit)submit.disabled=true;
     const scroll=window.scrollY;
     try{
       if(form.classList.contains('mastery-answer')){
-        await api(`/api/practice/mastery/${form.dataset.quiz}/answer`,'POST',{questionId:f.get('questionId'),answer:f.get('answer')});
-        try{(window.RiverMemory || localStorage).removeItem(draftKey(form));}catch{}
+        if(!await submitMasteryAnswer(form,f))return;
       }else{
         await api(`/api/practice/mastery/${form.dataset.quiz}/tutor`,'POST',{questionId:f.get('questionId'),message:f.get('message')});
       }
@@ -312,8 +325,7 @@
     event.preventDefault();const form=event.target;if(form.dataset.submitting)return;form.dataset.submitting='true';const f=new FormData(form);const submit=form.querySelector('[type=submit]')||form.querySelector('button');if(submit)submit.disabled=true;
     try{
       if(form.classList.contains('mastery-answer')){
-        await api(`/api/practice/mastery/${form.dataset.quiz}/answer`,'POST',{questionId:f.get('questionId'),answer:f.get('answer')});
-        try{(window.RiverMemory || localStorage).removeItem(draftKey(form));}catch{}
+        if(!await submitMasteryAnswer(form,f))return;
         await load(false);renderQuiz();await changed();
       }else if(form.id==='practice-editor'){
         collectEditor();if(editor.id&&JSON.stringify(editor)===editorOriginal){modal.close();editor=null;return;}await api('/api/parent/practice/quizzes'+(editor.id?'/'+editor.id:''),editor.id?'PUT':'POST',editor);
@@ -338,7 +350,7 @@
       const field=form.elements.answer||form.elements.message;
       return {quizId:form.dataset.quiz,questionId:form.elements.questionId.value,name:field.name,value:field.value,
         focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd,
-        direction:field.selectionDirection,scroll:field.scrollTop};
+        direction:field.selectionDirection,scroll:field.scrollTop,feedback:form.querySelector('[data-answer-feedback]')?.textContent||''};
     });
   }
   function restorePracticeInputs(root,saved){
@@ -347,6 +359,7 @@
       const previous=saved.find(item=>item.quizId===form.dataset.quiz&&item.questionId===form.elements.questionId.value&&item.name===field.name);
       if(!previous)continue;
       field.value=previous.value;
+      answerFeedback(form,previous.feedback);
       if(previous.focused){field.focus({preventScroll:true});field.setSelectionRange(previous.start,previous.end,previous.direction);}
       field.scrollTop=previous.scroll;
     }

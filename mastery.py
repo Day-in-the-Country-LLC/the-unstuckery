@@ -194,6 +194,17 @@ def review(store,quiz,attempt,body,actor,action):
     return {'ok':True,'attempt':copy.deepcopy(attempt),'mastery':status(store,quiz)}
 
 
+def same_answer(first, second):
+    # Spacing alone is not a revision; capitals and punctuation may be the skill being practiced.
+    return ' '.join(first.split()) == ' '.join(second.split())
+
+
+def duplicate_answer(store, quiz):
+    return {'ok': True, 'duplicate': True,
+            'message': 'This is the same answer as your previous submission. Read the feedback or ask the tutor, then revise your answer before submitting again.',
+            'mastery': status(store, quiz)}
+
+
 def mutate(store,path,body,actor):
     match=re.fullmatch(r'/api/(parent/)?practice/mastery/([^/]+)/(answer|hint|tutor|confirm)',path)
     if not match:return None
@@ -214,12 +225,11 @@ def mutate(store,path,body,actor):
     latest=latest_attempts(store,quiz).get(question['id'])
     revisit=next((item for item in pending_revisits(store,quiz,question) if item['dueDate']<=store.today()),None)
     if action == 'answer' and question.get('effortPolicy'):
-        from practice import _norm
         from effort_review import attempts as effort_attempts, day as effort_day
         answer=_text(body.get('answer',''),'answer',True)
-        duplicate=next((a for a in reversed(effort_attempts(store,quiz,question)) if effort_day(a)==store.today() and _norm(a['answer'])==_norm(answer)),None)
+        duplicate=next((a for a in reversed(effort_attempts(store,quiz,question)) if effort_day(a)==store.today() and same_answer(a['answer'],answer)),None)
         if duplicate:
-            return {'ok':True,'duplicate':True,'mastery':status(store,quiz)}
+            return duplicate_answer(store,quiz)
     if latest and latest['grade']=='pending':
         raise PracticeError('This question is approved or awaiting review. Only a question needing another try can reopen.',409)
     if latest and latest['grade']=='correct' and not revisit and not question.get('effortPolicy'):
@@ -231,6 +241,9 @@ def mutate(store,path,body,actor):
     if action=='hint':
         return {'ok':True,'hint':hint(store,quiz,question),'mastery':status(store,quiz)}
     answer=_text(body.get('answer',''),'answer',True)
+    # A scheduled later learning check is a new attempt context, even if its answer matches.
+    if latest and (not revisit or latest.get('revisitId') == revisit['id']) and same_answer(latest['answer'],answer):
+        return duplicate_answer(store,quiz)
     used=_bool(body.get('usedHelp',False),'whether help was used')
     from writing_coach import policy
     policy(store,quiz,freeze=True)

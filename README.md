@@ -19,7 +19,7 @@ Online copies use Google sign-in. Approved parent accounts go to `/parent`; the 
 ## What it includes
 
 - Daily schoolwork, routines, timers, breaks, and parent-managed rewards.
-- Extra practice with saved answers, private rubrics, feedback, revisions, and optional sequential steps.
+- Extra practice with saved answers, private rubrics, feedback, revisions, and optional sequential steps. Unchanged retries for the same question return immediately without another AI review or attempt; spacing alone is ignored, while capitalization and punctuation edits can be reviewed. Scheduled later learning checks remain separate.
 - A tutoring conversation alongside the current question, including earlier approved writing for context.
 - Server-saved drafts that can continue on another device.
 - Parent creation/import/publication of exercises and review of completed work.

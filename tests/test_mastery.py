@@ -25,7 +25,9 @@ class MasteryReviewTests(unittest.TestCase):
     def call(self,path,body=None,actor='river'):
         return self.store.transaction(lambda:self.store.mutate(path,body or {},actor))
     def answer(self,i,**extra):
-        self.call('/api/practice/mastery/'+self.id+'/answer',{'questionId':f'q{i}','answer':'Synthetic self-written response',**extra})
+        prior=sum(a['quizId']==self.id and a['questionId']==f'q{i}' for a in self.store.state['practice']['attempts'])
+        answer='Synthetic self-written response'+(f' revision {prior}' if prior else '')
+        self.call('/api/practice/mastery/'+self.id+'/answer',{'questionId':f'q{i}','answer':answer,**extra})
         return self.store.state['practice']['attempts'][-1]
     def review(self,a,correct=True,**extra):
         return self.call('/api/assistant/practice/attempts/'+a['id']+'/review',{'correct':correct,'independent':True,'rubricEvidence':'PRIVATE EVIDENCE','feedback':'Use a passage to explain this point.' if not correct else 'Approved.',**extra},'assistant')
