@@ -3,6 +3,8 @@ data/
 *.sqlite3*
 *.db
 .assistant-token
+.planner-token
+.planner-origin
 .server-lock
 .env
 *.env

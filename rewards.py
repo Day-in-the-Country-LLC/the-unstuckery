@@ -68,7 +68,7 @@ def init_rewards(store):
     return state
 
 
-def task_planned(store, task, oldPlanDate=None):
+def task_planned(store, task, oldPlanDate=None, actor='parent'):
     """Record the parent's actual plan, never inferred historical completion."""
     r = init_rewards(store)
     current = task['planDate']
@@ -76,13 +76,14 @@ def task_planned(store, task, oldPlanDate=None):
         old = r['days'].get(oldPlanDate)
         if old and task['id'] in old['expectedSchoolIds']:
             old['expectedSchoolIds'].remove(task['id'])
-            store.history(old, 'parent', 'task_moved', {'taskId': task['id'], 'toDate': current})
+            store.history(old, actor, 'task_moved', {'taskId': task['id'], 'toDate': current})
     d = r['days'].setdefault(current, {'expectedSchoolIds': [], 'excusedItems': {}, 'history': []})
     if task['id'] not in d['expectedSchoolIds']:
         d['expectedSchoolIds'].append(task['id'])
-    d['reviewedAt'] = store.stamp()
-    d['reviewedBy'] = 'parent'
-    store.history(d, 'parent', 'task_expected', {'taskId': task['id'], 'scope': task.get('scope', 'assignment')})
+    if actor == 'parent':
+        d['reviewedAt'] = store.stamp()
+        d['reviewedBy'] = 'parent'
+    store.history(d, actor, 'task_expected', {'taskId': task['id'], 'scope': task.get('scope', 'assignment')})
 
 
 def period(day, settings):

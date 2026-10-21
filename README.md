@@ -24,7 +24,7 @@ Online copies use Google sign-in. Approved parent accounts go to `/parent`; the 
 - Server-saved drafts that can continue on another device.
 - Parent creation/import/publication of exercises and review of completed work.
 - Optional read-only Canvas connections, subject to the school's permissions.
-- A local assistant CLI for preparing drafts and recording observed evidence. Publishing and parent controls remain parent-only.
+- A private assistant CLI for preparing drafts and recording observed evidence, plus optional delegated exercise publication with a separate planner key. Parent confirmations and account controls stay parent-only.
 - Optional macOS packaging and a Google Drive folder handoff workflow for local installations.
 
 Teacher work remains teacher work: an app checkmark does not submit anything to a school, establish a grade, or replace the school's required submission method. AI feedback is fallible; parents can review and correct it.

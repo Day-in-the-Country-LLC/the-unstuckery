@@ -87,6 +87,26 @@ Keep your private Terraform state and variables outside the public repository. D
 
 Exercise creation/import is available in Parent review. An external assistant can also use `assistant.py` and the private `.assistant-token` to prepare drafts; it cannot publish or use parent controls. For a cloud installation, keep that token private, save the exact HTTPS origin in `.assistant-origin` beside the token, and use `--url` with that origin. Redirects are refused to prevent forwarding the credential elsewhere.
 
+### Optional exercise planner access
+
+An installation owner can delegate exercise preparation and publication without sharing a Google login. This is off by default. Set `UNSTUCKERY_PLANNER_ENABLED=1` in the server's private `installation.env` and restart. The server creates an owner-only `data/.planner-token`. Transfer it privately to the assistant's credential directory and pin the exact HTTPS address in `.planner-origin` beside it. Never put the key in a URL, browser, student material, chat message, or Git.
+
+Use the same CLI with `--planner --data-dir /private/credential-directory --url https://learning.example.com`:
+
+```sh
+python3 assistant.py --planner --data-dir /private/credential-directory --url https://learning.example.com state --date 2026-10-21
+python3 assistant.py --planner --data-dir /private/credential-directory --url https://learning.example.com practice-draft --json-file exercise.json
+python3 assistant.py --planner --data-dir /private/credential-directory --url https://learning.example.com practice-publish QUIZ_ID --json-file publication.json
+```
+
+Drafts use the usual exercise JSON plus a unique `requestId` (letters, digits, hyphens, underscores). Retrying the same request ID and content returns the existing draft; different content with that ID is rejected. `practice-update-draft QUIZ_ID --json-file exercise.json` requires the current `expectedRevision` and works only on the planner's own unpublished, unstarted drafts. Read revisions through `practice-state`.
+
+Publication JSON contains `expectedRevision`, integer `plannedMinutes` (1–90), and student-facing `instructions`. It creates one extra-practice task on the draft's date, rejects past dates and plans over 90 minutes, and is safe to retry unchanged. Publication requires complete rubrics and assistant-reviewed responses. Existing published work cannot be overwritten through this API. A paused exercise remains the same task.
+
+The planner can read school-plan metadata and private practice material/progress to plan appropriate exercises. It cannot read account configuration or photos, use parent or student endpoints, grade answers, change global practice settings, report readiness, complete tasks, confirm chores, change timers, or award prizes. Its actions are recorded as `planner`, never as a parent. Adding an expected task does not newly mark the day's plan parent-reviewed. Parent completion confirmation remains required.
+
+To revoke access, set `UNSTUCKERY_PLANNER_ENABLED=0` and restart. To rotate the key, stop the app, move the old `.planner-token` into a protected backup, then start with planner access enabled and transfer the newly generated token. Old keys stop working after restart. No SQL migration is needed: optional `plannerRequests` and publication/audit fields live in the existing JSON state. For rollback, disable planner access and follow the source/data backup procedure below; do not discard student work to remove the feature.
+
 ## Back up, update, and restore
 
 Back up the **whole private data directory**, private settings, and any separately configured Canvas credential file. Keep encrypted or access-restricted copies outside the server. A persistent disk is not a backup. Stop the app while copying a database, or use SQLite's backup API for a consistent snapshot.

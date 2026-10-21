@@ -81,6 +81,8 @@ class RiverStore:
                 f.write(secrets.token_urlsafe(32))
         self.assistant_token = token_path.read_text().strip()
         os.chmod(token_path, 0o600)
+        from planner import init_planner
+        init_planner(self)
         os.chmod(self.data_dir / 'river.sqlite3', 0o600)
         from photos import init_schema
         init_schema(self)
@@ -345,14 +347,14 @@ class RiverStore:
             'sourceUrl':safe_url(body.get('sourceUrl','')),'criteria':clean(body.get('criteria','')),
             'sourceNote':clean(body.get('sourceNote','')),'requirements':{k:req.get(k,False) for k in ('understanding','submission','parent')}}
 
-    def create_task(self, body):
+    def create_task(self, body, actor='parent'):
         fields = self.school_fields(body)
         task = self.base_task(secrets.token_hex(8),'school',fields['subject'],fields['title'],fields['instructions'],fields['planDate'],len(self.state['tasks']))
         task.update(fields)
-        self.history(task,'parent','planned',fields)
+        self.history(task,actor,'planned',fields)
         self.state['tasks'].append(task)
         from rewards import task_planned
-        task_planned(self,task)
+        task_planned(self,task,actor=actor)
         return self.view_task(task)
 
     def drafts(self):
@@ -363,6 +365,9 @@ class RiverStore:
         return raw
 
     def mutate(self, path, body, actor):
+        if path.startswith('/api/planner/') or actor == 'planner':
+            from planner import mutate
+            return mutate(self, path, body, actor)
         if path.startswith('/api/parent/') and actor != 'parent':
             raise AppError('Unlock parent review to use this control.',403)
         if path == '/api/browser-memory':
@@ -757,18 +762,25 @@ class RiverHandler(BaseHTTPRequestHandler):
                 return
             bearer=self.headers.get('Authorization','')
             assistant=bool(bearer) and hmac.compare_digest(bearer,'Bearer '+store.assistant_token)
-            if bearer and not assistant:
+            planner=bool(bearer and store.planner_token) and hmac.compare_digest(bearer,'Bearer '+store.planner_token)
+            if bearer and not (assistant or planner):
                 raise AppError('Assistant access did not match.',401)
+            if planner:
+                from planner import allowed_request
+                if not allowed_request(method, path):
+                    raise AppError('Planner access is limited to exercise preparation and publication.',403)
+            if path.startswith('/api/planner/') and not planner:
+                raise AppError('This action needs planner access.',401)
             if bearer and (path.startswith('/api/parent/') or path.startswith('/api/auth')):
                 raise AppError('Assistant access cannot use parent controls.',403)
             if path.startswith('/api/assistant/') and not assistant:
                 raise AppError('This check needs assistant access.',401)
-            if method!='GET' and not assistant:
+            if method!='GET' and not (assistant or planner):
                 if self.headers.get('X-Student-Request')!='1' or origin!=expected_origin:
                     raise AppError('Open this action from the local app.',403)
             if cloud:
                 public_paths = ('/api/health', '/api/auth', '/api/auth/config', '/api/auth/google', '/api/auth/logout')
-                if path not in public_paths and not assistant and not cloud.status(self.session())['role']:
+                if path not in public_paths and not (assistant or planner) and not cloud.status(self.session())['role']:
                     raise AppError('Sign in to The Unstuckery to continue.', 401)
             if path == '/api/canvas/oauth/callback' or path == '/api/parent/canvas' or path.startswith('/api/parent/canvas/'):
                 from canvas import handle_request
@@ -782,7 +794,10 @@ class RiverHandler(BaseHTTPRequestHandler):
                     query=parse_qs(parsed.query)
                     day=query.get('date',[None])[0]
                     photo_view=re.fullmatch(r'/api/tasks/([a-zA-Z0-9_-]+)/photos',path)
-                    if path.startswith('/api/photos/'):
+                    if path.startswith('/api/planner/'):
+                        from planner import view
+                        result=store.transaction(lambda:view(store,path,day))
+                    elif path.startswith('/api/photos/'):
                         from photos import image_bytes
                         raw=image_bytes(store,path.removeprefix('/api/photos/'))
                         self.send_response(200)
@@ -873,7 +888,7 @@ class RiverHandler(BaseHTTPRequestHandler):
                     cookie='river_parent=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0'
                     result={'ok':True}
                 else:
-                    actor='parent' if path.startswith('/api/parent/') else 'assistant' if assistant else 'river'
+                    actor='planner' if planner else 'parent' if path.startswith('/api/parent/') else 'assistant' if assistant else 'river'
                     # Assistant may report/help/correct but Student alone checks off schoolwork.
                     if assistant and path.endswith('/complete'):
                         raise AppError('Student checks off schoolwork in Today.',403)
