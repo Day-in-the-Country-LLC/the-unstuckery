@@ -22,7 +22,8 @@ Online copies use Google sign-in. Approved parent accounts go to `/parent`; the 
 - Extra practice with saved answers, private rubrics, feedback, revisions, and optional sequential steps.
 - Feedback informed by the full relevant answer-and-feedback history for each question. Reviewers are instructed to adapt their coaching when earlier explanations did not help, while grading only the current answer.
 - Unchanged retries return immediately without another AI review or attempt. Spacing alone is ignored; capitalization and punctuation edits can be reviewed. Scheduled later learning checks remain separate.
-- A tutoring conversation alongside the current question, including earlier approved writing for context.
+- Optional Decisions API grading, with 6.1 Sol coaching only when a submission fails.
+- A tutoring conversation alongside the current question, including its saved attempts, feedback, and earlier approved writing for context.
 - Server-saved drafts that can continue on another device.
 - Parent creation/import/publication of exercises and review of completed work.
 - Optional read-only Canvas connections, subject to the school's permissions.

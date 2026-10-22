@@ -6,7 +6,7 @@ and benchmark answers from model context. Tutoring is support, not grading.
 from __future__ import annotations
 
 import copy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import hashlib
 import json
 import secrets
@@ -24,6 +24,10 @@ trying, begin with the reasoning and invite him to do the next step. After a gen
 complete solution and correct misunderstandings, then ask Student to restate the idea or write the final response in
 his own words. Do not supply a bare answer, a copy-ready paragraph, a private benchmark answer, or a rubric.
 Respond to the latest message while using the earlier conversation so follow-up questions make sense.
+Read answerHistory: every relevant submitted answer, result, feedback and hint for this current step, oldest first.
+Use that history to understand what Student has tried and what advice did not help. Acknowledge concrete progress
+when present. If the same issue persists, change the explanation or scaffold rather than repeating earlier advice.
+Do not assume an answer marked pending has failed, and do not undo a passing review or demand a fixed issue again.
 When stepByStep is true, help only with the current instruction, using approvedEarlierSteps as the student's
 saved writing. Give one small explanation or checking question at a time, not a list of future steps.
 Do not write a replacement sentence or paragraph for this writing exercise. Use an unrelated topic if a model
@@ -116,6 +120,15 @@ def context(store, job):
             raise AgentError('An earlier writing step needs approval before tutoring this step.')
         payload['stepByStep'] = True
         payload['approvedEarlierSteps'] = previous
+    sequence = [step['attemptId'] for step in payload.get('approvedEarlierSteps', [])]
+    payload['answerHistory'] = [
+        {'answer': a['answer'], 'result': a['grade'], 'feedback': a.get('feedback', ''), 'hint': a.get('retryHint', '')}
+        for a in data['attempts']
+        if a['quizId'] == quiz['id'] and a['questionId'] == question['id']
+        and a['questionVersion'] == question['questionVersion']
+        and datetime.fromisoformat(a['at']) <= datetime.fromisoformat(message['at'])
+        and (not quiz.get('sequential') or a.get('sequenceContext', []) == sequence)]
+    # Assessment updates are coaching context, not a reason to discard an in-flight tutor reply.
     fingerprint = hashlib.sha256(json.dumps({
         'quizId': quiz['id'], 'questionId': question['id'], 'questionVersion': question['questionVersion'],
         'message': message, 'earlier': earlier, 'support': payload['tutoringSupport'],

@@ -81,7 +81,7 @@ Keep your private Terraform state and variables outside the public repository. D
 
 ## Settings and limits
 
-`private/review.env` accepts `OPENAI_API_KEY`, `OPENAI_REVIEW_MODEL`, and `RIVER_AI_MAX_REVIEWS_PER_DAY` (0–100). Set it to `0` to allow unlimited daily reviews and tutor replies, billed to your own API key. Removing the cap also resumes saved requests that were blocked before reaching the provider. The default is 30 daily requests; this is a usage guard, not a dollar budget. Provider billing limits are separate. Restart the server after changing these settings.
+`private/review.env` accepts `OPENAI_API_KEY`, `OPENAI_REVIEW_MODEL`, `OPENAI_REVIEW_MODE`, and `RIVER_AI_MAX_REVIEWS_PER_DAY` (0–100). Set it to `0` to allow unlimited daily reviews and tutor replies, billed to your own API key. Removing the cap also resumes saved requests that were blocked before reaching the provider. The default is 30 daily requests; this is a usage guard, not a dollar budget. Provider billing limits are separate. Restart the server after changing these settings.
 
 `private/installation.env` accepts `UNSTUCKERY_TIMEZONE`, `UNSTUCKERY_CANVAS_ORIGIN`, and `UNSTUCKERY_DOMAIN`. The Canvas origin must be the exact HTTPS origin for the school. Credentials are stored privately, and outbound Canvas operations are restricted to read-only endpoints at that origin. Parent/student Google sign-in is separate from school authentication. A school-issued Canvas OAuth client or permitted parent API token may be needed; do not assume every school permits integration.
 
@@ -114,3 +114,24 @@ Back up the **whole private data directory**, private settings, and any separate
 Before upgrading, stop the app and make a dated backup. Replace only the source code; keep `data/`, `private/`, and Caddy volumes. Restart and check sign-in, saved work, and review status. To roll back, stop the app, restore the matching source and data backup, then restart. Never run old and new copies against the same database at the same time.
 
 For migration from an earlier local installation, make a consistent SQLite backup and transfer the existing data privately. Do not import real student data through Git. If the local browser contains an unsent draft, open it and save it before moving; older versions may have kept drafts only in that browser. Old Canvas OAuth sessions may need reconnecting at the new HTTPS callback address.
+
+### Decisions grading with coaching on failure
+
+Set `OPENAI_REVIEW_MODE=decisions` in the private review settings to grade mastery submissions through
+[OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions), using `gpt-6-luna` and the same API key.
+Passing answers save and advance without a Sol call. Failed answers receive coaching using `OPENAI_REVIEW_MODEL`
+(default `gpt-6.1-sol`), with the complete relevant answer/feedback history. The coaching tool cannot change the
+saved grade. The tutor button also sees that history and uses the configured coaching model. Photo help remains
+on that model. API refusals, missing context and invalid responses leave the answer pending for retry or parent review.
+
+Writing retains its sentence, coverage, evidence and frozen mechanics checks: typed boundary decisions preserve
+all submitted text, then typed criteria are evaluated. Effort is checked separately from correctness. Longer writing
+may require multiple Decisions batches. Selected choices determine the flags; confidence is stored privately, not
+used as an unvalidated pass threshold. AI decisions are fallible; evaluate on representative synthetic exercises
+before enabling this mode for your installation. The API is currently in beta and project access may vary.
+
+The existing `agents` mode is the default for compatibility. A job records its selected mode when it starts;
+already-running reviews finish on their original path. No database migration is needed: new private job fields store
+the mode and fixed assessment. After a restart, saved decisions resume without another grading call. An interrupted
+outbound request requires explicit retry. Restore `OPENAI_REVIEW_MODE=agents` for new reviews to opt out; drain active
+jobs before rolling back source. Back up private data and settings as described above.

@@ -1,4 +1,4 @@
-"""Optional managed Agents API reviewer. Secrets and network calls stay server-side."""
+"""Optional Decisions grading and Agents coaching. Secrets and calls stay server-side."""
 import copy
 import hashlib
 import json
@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 CONFIG_PATH = Path.home() / 'Library/Application Support/RiverAfterSchool/review.env'
 PROMPT_VERSION = 'river-mastery-v6-progressive-feedback'
-ACTIVE = ('queued', 'creating', 'running')
+ACTIVE = ('queued', 'creating', 'decided', 'running')
 DAILY_LIMIT_MESSAGES = ('Today’s automatic help limit was reached. Your question is saved.',
                         'Today’s automatic review limit was reached. Your answer is saved.')
 INSTRUCTIONS = '''You review a student's saved schoolwork response against the supplied private rubric and source material.
@@ -120,7 +120,9 @@ def read_config(path=None):
     if not 0 <= limit <= 100: raise ValueError('Set the daily review limit to 0 for unlimited, or between 1 and 100.')
     if not re.fullmatch(r'[a-zA-Z0-9._:-]{1,100}', model): raise ValueError('Choose a valid review model ID.')
     if '\n' in key or '\r' in key: raise ValueError('Use a single-line API key.')
-    return {'key': key, 'model': model, 'dailyLimit': limit}
+    review_mode = values.get('OPENAI_REVIEW_MODE', 'agents')
+    if review_mode not in ('agents', 'decisions'): raise ValueError('Choose agents or decisions review mode.')
+    return {'key': key, 'model': model, 'dailyLimit': limit, 'reviewMode': review_mode}
 
 
 class AgentError(Exception):
@@ -132,11 +134,13 @@ class AgentsClient:
     def __init__(self, key): self.key = key
 
     def request(self, method, path, body=None):
-        if not re.fullmatch(r'/agents/sessions(?:/[a-zA-Z0-9_-]+(?:/events)?)?', path):
+        if not (re.fullmatch(r'/agents/sessions(?:/[a-zA-Z0-9_-]+(?:/events)?)?', path)
+                or (path == '/decisions' and method == 'POST')):
             raise AgentError('Unsupported review API operation.')
         req = Request('https://api.openai.com/v1' + path, method=method,
                       data=json.dumps(body).encode() if body is not None else None,
-                      headers={'Authorization': 'Bearer ' + self.key, 'OpenAI-Beta': 'agents=v1', 'Content-Type': 'application/json'})
+                      headers={'Authorization': 'Bearer ' + self.key, 'Content-Type': 'application/json',
+                               **({'OpenAI-Beta': 'agents=v1'} if path.startswith('/agents/') else {})})
         try:
             # Use the macOS CA bundle when Homebrew's separate bundle is incomplete.
             # Keep hostname and certificate verification enabled, including custom CA settings.
@@ -151,7 +155,7 @@ class AgentsClient:
         except HTTPError as error:
             messages = {401: 'The API key was not accepted. Ask your parent to check review settings.',
                         403: 'This API project cannot access the selected review service or model.',
-                        404: 'The Agents API or selected model is unavailable for this project.',
+                        404: 'The selected review API or model is unavailable for this project.',
                         429: 'The review service reached a usage or rate limit. Try again later.'}
             raise AgentError(messages.get(error.code, 'The review service could not complete this request. Try again later.')) from None
         except (URLError, TimeoutError, OSError, ValueError):
@@ -371,16 +375,44 @@ class ReviewWorker:
                 message = ('Tutor startup was interrupted. Your question is saved; try again.' if pending.get('kind') == 'tutor'
                            else 'Review startup was interrupted. Your answer is saved; retry or ask Codex.')
                 self.change(ident, status='failed', message=message); return
-            if pending['status'] == 'queued':
+            if pending['status'] in ('queued', 'decided'):
                 with self.store.lock:
                     count = sum(j.get('tries', 0) for j in jobs(self.store).values() if j.get('date') == self.store.today())
-                if config['dailyLimit'] and count >= config['dailyLimit']:
+                if pending['status'] == 'queued' and config['dailyLimit'] and count >= config['dailyLimit']:
                     message = DAILY_LIMIT_MESSAGES[0 if pending.get('kind') == 'tutor' else 1]
                     self.change(ident, status='failed', message=message); return
                 progress_message = 'Answering your question…' if pending.get('kind') == 'tutor' else 'Reviewing your answer…'
                 version = {'promptVersion': PROMPT_VERSION} if pending.get('kind') not in ('photo', 'tutor') else {}
-                self.change(ident, status='creating', fingerprint=fingerprint, model=config['model'], date=self.store.today(),
-                            tries=pending['tries'] + 1, startedAt=time.time(), message=progress_message, **version)
+                review_mode = pending.get('reviewMode', config['reviewMode']) if pending.get('kind') not in ('photo', 'tutor') else 'agents'
+                if review_mode == 'decisions':
+                    from decisions_review import VERSION
+                    version = {'promptVersion': VERSION}
+                if pending['status'] == 'queued':
+                    self.change(ident, status='creating', fingerprint=fingerprint, model=config['model'], date=self.store.today(),
+                                reviewMode=review_mode, tries=pending['tries'] + 1, startedAt=time.time(), message=progress_message, **version)
+                if review_mode == 'decisions':
+                    import decisions_review
+                    assessment = pending.get('decisionReview')
+                    if assessment is None:
+                        self.change(ident, model=decisions_review.MODEL, promptVersion=decisions_review.VERSION,
+                                    message='Checking your answer…')
+                        assessment = decisions_review.evaluate(client, payload)
+                        with self.store.lock:
+                            _, _, _, current_fingerprint = context(self.store, pending)
+                        if current_fingerprint != fingerprint:
+                            raise AgentError('This answer or its grading criteria changed. Ask for a fresh review.')
+                        if self.stop_event.is_set(): return
+                        self.change(ident, status='decided', decisionReview=assessment)
+                    if assessment['correct']:
+                        result = self.apply(ident, {'turn_id': 'decisions', 'call_id': 'pass',
+                                                  'name': 'save_decision_pass', 'arguments': {}})
+                        if not result['success']:
+                            self.change(ident, status='failed', message='The answer check needs a parent review. Your answer is saved.')
+                        return
+                    instructions, tool = decisions_review.FEEDBACK_INSTRUCTIONS, decisions_review.feedback_tool()
+                    initial_input = json.dumps(dict(payload, decisionAssessment=assessment))
+                    self.change(ident, status='creating', model=config['model'], startedAt=time.time(),
+                                message='Preparing feedback to help you revise…')
                 session = client.request('POST', '/agents/sessions', {
                     'agent': {'model': config['model'], 'instructions': instructions, 'multi_agent': {'enabled': False},
                               'tools': [tool] if pending.get('kind') == 'tutor' else [tool, {'type':'function','name':'unable_to_review',
@@ -435,7 +467,10 @@ class ReviewWorker:
         def commit():
             job = jobs(self.store)[ident]
             if call_key in job['calls']: return job['calls'][call_key]
-            if job['status'] != 'running': return {'success': False, 'error': 'This review job has already ended.'}
+            direct_pass = (job.get('reviewMode') == 'decisions' and job.get('decisionReview', {}).get('correct') is True
+                           and action.get('name') == 'save_decision_pass')
+            if job['status'] != 'running' and not (direct_pass and job['status'] in ('decided', 'creating')):
+                return {'success': False, 'error': 'This review job has already ended.'}
             quiz, attempt, _, fingerprint = context(self.store, job)
             if fingerprint != job['fingerprint']: raise AgentError('The answer or grading criteria changed before review was saved.')
             if job.get('kind') == 'tutor':
@@ -450,9 +485,14 @@ class ReviewWorker:
                 job.update(status='completed', message='Tutor reply is ready.', completedAt=self.store.stamp())
                 outcome = {'success': True, 'output': 'Tutor reply saved. Stop now.'}
             elif action.get('name') == 'unable_to_review':
-                job.update(status='failed', message='The AI needs clearer source material or grading criteria. Ask your parent or Codex.')
+                message = ('The AI needs a parent check of this review. Your answer is saved.'
+                           if job.get('reviewMode') == 'decisions' else
+                           'The AI needs clearer source material or grading criteria. Ask your parent or Codex.')
+                job.update(status='failed', message=message)
                 outcome = {'success': True, 'output': 'Saved the request for manual review.'}
-            elif action.get('name') != ('save_photo_review' if job.get('kind')=='photo' else 'save_review'):
+            elif action.get('name') != ('save_photo_review' if job.get('kind')=='photo' else
+                    ('save_decision_pass' if job.get('decisionReview', {}).get('correct') else 'save_review_feedback')
+                    if job.get('reviewMode') == 'decisions' else 'save_review'):
                 raise AgentError('The AI requested an action outside quiz review.')
             else:
                 body = action.get('arguments')
@@ -465,6 +505,11 @@ class ReviewWorker:
                     outcome={'success':True,'output':'Photo review saved. Stop now.'}
                     job['calls'][call_key]=outcome
                     return outcome
+                if job.get('reviewMode') == 'decisions':
+                    from decisions_review import merge_feedback
+                    assessment = job.get('decisionReview')
+                    if not assessment: raise PracticeError('The answer needs its decision before feedback.')
+                    body = copy.deepcopy(assessment) if assessment['correct'] else merge_feedback(assessment, body)
                 allowed = {'correct','independent','rubricEvidence','feedback','hint','help','writingReview','revisionGoals','writingMechanics','effortReview'}
                 if set(body) - allowed: raise PracticeError('Only assessment fields may be submitted.')
                 question=next(q for q in quiz['questions'] if q['id']==attempt['questionId'])
