@@ -114,3 +114,22 @@ class MasteryReviewTests(unittest.TestCase):
         self.call('/api/assistant/practice/attempts/'+retry['id']+'/revoke',{'note':'Synthetic retry'},'assistant')
         self.store.day(self.store.today())['schoolClock'].update(elapsedSeconds=5400,running=False,phase=None)
         with self.assertRaises(PracticeError):self.answer(1)
+
+    def test_answers_do_not_restart_work_after_break_or_pause(self):
+        first = self.answer(1)
+        self.review(first)
+        self.now += timedelta(minutes=40)
+        before = len(self.store.state['practice']['attempts'])
+        with self.assertRaisesRegex(AppError, 'Resume work'):
+            self.answer(2)
+        self.assertEqual(len(self.store.state['practice']['attempts']), before)
+        self.assertEqual(self.store.view()['schoolClock']['elapsedSeconds'], 1800)
+        self.assertFalse(self.store.view()['schoolClock']['running'])
+        self.call('/api/school-clock/start', {'kind':'work'})
+        second = self.answer(2)
+        self.assertEqual(second['grade'], 'pending')
+        self.call('/api/school-clock/pause')
+        self.review(second)
+        with self.assertRaisesRegex(AppError, 'Resume work'):
+            self.answer(3)
+        self.assertFalse(self.store.view()['schoolClock']['running'])

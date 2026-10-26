@@ -140,7 +140,7 @@ function todayPage() {
   return `<section class="intro"><div><div class="date-label">${esc(dateText(state.date))}</div><h1>One thing at a time.</h1><p class="muted">${task || otherTodoOpen ? 'Start here. We’ll keep your place.' : 'You’ve reached the end of your current plan.'}</p></div></section>
     <div class="today-grid"><div>${schoolClockCard()}<section class="card current-card" aria-label="Current task">${task ? currentTaskCard(task) : `<div class="task-heading"><span class="task-number" aria-hidden="true">✓</span><p class="eyebrow">A good place to pause</p></div><h2>${waiting ? 'Your work is ready for review.' : otherTodoOpen ? 'Your other to-dos are below.' : schoolCount === 0 && !todayTasks.some(item => item.kind === 'school') ? 'Your schoolwork plan is on its way.' : 'Your current plan is finished.'}</h2><p class="muted">${waiting ? 'Your parent can check the routine when they’re ready. You can take a break.' : otherTodoOpen ? 'Your remaining items are in the Other to-dos section below.' : !todayTasks.some(item => item.kind === 'school') ? 'You can choose earlier unfinished work or a planned future assignment below. Your daily braces timer is ready whenever it fits.' : 'Take a break. Anything unfinished will stay in your plan.'}</p>${!state.afterSchool ? '<p class="small muted">There is no after-school routine planned for today.</p>' : ''}`}</section>
     ${todayTaskSections(todayTasks, task?.id, schoolCount)}${waiting ? `<p class="inline-note" style="margin-top:12px">${waiting} ${waiting === 1 ? 'item is' : 'items are'} waiting for your parent. You can keep going.</p>` : ''}${otherTodosSection(false)}</div>
-    <aside><section class="card timer-card" aria-labelledby="braces-heading"><p class="eyebrow">Fits around your work</p><h2 id="braces-heading">Your hour in braces</h2><p class="small muted">Put them on, then start your timer.</p><div class="timer-readout"><b id="timer-value" style="font-weight:400">60:00</b><span id="timer-caption">remaining</span></div><div class="timer-track" aria-hidden="true"><div id="timer-progress"></div></div><p class="small muted" id="timer-state"></p><div class="actions" id="timer-actions"></div><p class="timer-note">The timer keeps your place when you close or refresh the app. Elapsed time is separate from your parent’s confirmation.</p><div id="timer-confirmation"></div></section>${riverRewards()}<div class="time-budget"><strong>Room for breaks.</strong>Three 30-minute sessions give you ${esc(state.schoolMinutes || 90)} minutes of schoolwork. The 60-minute braces break and 10-minute rest break are extra. Unfinished work stays here for next time.</div></aside></div>${otherSchoolwork(task?.id)}`;
+    <aside><section class="card timer-card" aria-labelledby="braces-heading"><p class="eyebrow">Fits around your work</p><h2 id="braces-heading">Your hour in braces</h2><p class="small muted">Put them on, then start your timer.</p><div class="timer-readout"><b id="timer-value" style="font-weight:400">60:00</b><span id="timer-caption">remaining</span></div><div class="timer-track" aria-hidden="true"><div id="timer-progress"></div></div><p class="small muted" id="timer-state"></p><div class="actions" id="timer-actions"></div><p class="timer-note">The timer keeps your place when you close or refresh the app. Elapsed time is separate from your parent’s confirmation.</p><div id="timer-confirmation"></div></section>${riverRewards()}<div class="time-budget"><strong>Room for breaks.</strong>Three 30-minute sessions give you ${esc(state.schoolMinutes || 90)} minutes of schoolwork. Automatic 10-minute breaks do not count toward that time. Start your separate braces timer after putting them on. Unfinished work stays here for next time.</div></aside></div>${otherSchoolwork(task?.id)}`;
 }
 
 function todayTaskSections(tasks, activeId, schoolCount) {
@@ -246,19 +246,26 @@ function updateTimer() {
   $('#timer-confirmation').innerHTML = braces.parentConfirmed ? `<div class="badge-list"><span class="badge">✓ Parent confirmed · ${esc(timeText(braces.parentConfirmed.at))}</span></div>` : finished ? '<div class="badge-list"><span class="badge waiting">Timer elapsed · parent review available</span></div>' : '';
 }
 
-function schoolClockCard() {
+function schoolClockCard(id = 'school-clock') {
   if (!state.schoolClock) return '';
-  return `<section class="school-clock pomodoro" id="school-clock" aria-label="Schoolwork time"><div><p class="eyebrow">Work, then a breather</p><strong id="school-clock-title"></strong><p id="school-clock-caption"></p><p id="school-budget"></p><p class="session-plan">Work 1 · 30 min → Braces · 60 min → Work 2 · 30 min → Rest · 10 min → Work 3 · 30 min</p></div><div class="actions" id="school-clock-actions"></div><div class="timer-sound"><span>${button(timerAudio.enabled ? 'Sound on' : 'Sound off','timer-sound','','quiet small')}${button('Test sound','timer-sound-test','','quiet small')}</span><p class="small muted">Keep this tab open and your Mac awake for timer sounds.</p></div></section>`;
+  return `<section class="school-clock pomodoro" id="${id}" data-school-clock aria-label="Schoolwork time"><div><p class="eyebrow">Work, then a breather</p><strong data-clock-title></strong><p data-clock-caption></p><p data-clock-budget></p><p class="session-plan">30 minutes of work → 10-minute break → Resume work when you’re ready</p></div><div class="actions" data-clock-actions></div><div class="timer-sound"><span>${button(timerAudio.enabled ? 'Sound on' : 'Sound off','timer-sound','','quiet small')}${button('Test sound','timer-sound-test','','quiet small')}</span><p class="small muted">Keep this tab open for timer sounds. The countdown keeps your place if you close it.</p></div></section>`;
 }
 
 function currentTimerValues(source = state, receivedAt = stateReceivedAt) {
   const c = source?.schoolClock;
   const extra = Math.max(0, Math.floor((Date.now()-receivedAt)/1000));
-  const p = c?.phase;
-  const phaseSeconds = p ? Math.min(p.durationSeconds, p.elapsedSeconds + (p.running ? extra : 0)) : 0;
-  const phaseFinished = p && phaseSeconds >= p.durationSeconds;
+  let p = c?.phase;
+  let phaseSeconds = p ? Math.min(p.durationSeconds, p.elapsedSeconds + (p.running ? extra : 0)) : 0;
   const budgetExtra = c?.running && (!p || p.kind === 'work') ? Math.min(extra, p ? Math.max(0,p.durationSeconds-p.elapsedSeconds) : Infinity) : 0;
   const budget = Math.min(5400,(c?.elapsedSeconds || 0) + budgetExtra);
+  // Match the server's deadline-based transition between polls; never start work.
+  if (p?.kind === 'work' && p.running && phaseSeconds >= p.durationSeconds && budget < 5400) {
+    const elapsed = Math.min(600, p.elapsedSeconds + extra - p.durationSeconds);
+    p = {id:p.id+'-rest',kind:'break',durationSeconds:600,elapsedSeconds:elapsed,
+      running:elapsed<600,automatic:true,fromWorkId:p.id};
+    phaseSeconds = elapsed;
+  }
+  const phaseFinished = p && phaseSeconds >= p.durationSeconds;
   const braces = source?.braces;
   const bracesSeconds = Math.min(3600,(braces?.elapsedSeconds || 0) + (braces?.running ? extra : 0));
   return {p,phaseSeconds,phaseFinished,budget,bracesSeconds};
@@ -268,7 +275,8 @@ function checkTimerAlerts() {
   if (!alertState || alertState.date !== alertState.today) return;
   const source = alertState;
   const {p,phaseFinished,budget,bracesSeconds} = currentTimerValues(source, alertStateReceivedAt);
-  if (p && p.kind !== 'braces' && phaseFinished) timerAudio.alert(`phase:${source.date}:${p.id}`, budget >= 5400 ? 'Schoolwork time is up for today. Your place is saved.' : p.kind === 'work' ? 'Work timer finished. Time for a break.' : 'Break finished. Start work when you’re ready.', toast);
+  if (p?.automatic && !phaseFinished) timerAudio.alert(`phase:${source.date}:${p.fromWorkId}`, 'Time for a break. Your work clock is paused for ten minutes.', toast);
+  if (p && p.kind !== 'braces' && phaseFinished) timerAudio.alert(`phase:${source.date}:${p.id}`, budget >= 5400 ? 'Schoolwork time is up for today. Your place is saved.' : p.kind === 'work' ? 'Time for a break. Your work clock is paused.' : 'Break finished. Choose Resume work when you’re ready.', toast);
   if (!p && budget >= 5400) timerAudio.alert(`school:${source.date}`, 'Schoolwork time is up for today.', toast);
   if (bracesSeconds >= 3600) {
     const resets = (source.braces.history || []).filter(event => event.action === 'timer_corrected').length;
@@ -277,25 +285,41 @@ function checkTimerAlerts() {
 }
 
 function updateSchoolClock() {
-  if (!state?.schoolClock || !$('#school-clock')) return;
-  const {p,phaseSeconds,phaseFinished,budget,bracesSeconds} = currentTimerValues();
+  if (!state?.schoolClock) return;
+  const {p,phaseSeconds,phaseFinished,budget} = currentTimerValues();
   const atLimit = budget >= 5400;
-  const legacyPaused = !p && !state.schoolClock.running && budget > 0 && !atLimit;
   const running = p ? p.running && !phaseFinished : state.schoolClock.running;
-  const labels = {work:`Work session ${p?.sessionNumber || Math.min(3,Math.floor(budget/1800)+1)} of 3`,break:'Rest break',braces:'Braces break'};
-  $('#school-clock').classList.toggle('limit',atLimit);
-  $('#school-clock-title').textContent = p ? `${labels[p.kind]} · ${phaseFinished ? 'timer finished' : compactTime(p.durationSeconds-phaseSeconds)}` : atLimit ? 'Schoolwork time is up for today.' : running ? 'Your schoolwork window is running' : legacyPaused ? 'Schoolwork paused' : '30 minutes of work, then a break';
-  $('#school-clock-caption').textContent = p?.kind === 'braces' ? (phaseFinished ? 'Your braces hour is finished. Start work when you’re ready.' : running ? 'The schoolwork window is paused. Pause this timer if you take your braces off.' : 'Braces break paused. Resume when your braces are back on. The schoolwork window stays paused.') : phaseFinished ? (atLimit ? 'All three work sessions are finished. Save your place for tomorrow.' : 'Start the next interval when you’re ready.') : running ? (p ? 'This interval stops automatically. Your place is saved.' : 'Start the next work interval below. Time already recorded stays saved.') : p || legacyPaused ? 'Paused. Resume when you’re ready.' : 'Start the first of three 30-minute work sessions. Both breaks are built into the plan.';
-  $('#school-budget').textContent = atLimit ? '90 minutes of schoolwork complete · 3 of 3 work sessions finished. Unfinished work carries forward.' : `${compactTime(5400-budget)} of schoolwork left · ${Math.floor(budget/1800)} of 3 work sessions complete. Neither break counts toward the 90 minutes.`;
-  const restDone = state.schoolClock.restComplete || (p?.kind === 'break' && phaseFinished);
-  const nextKind = budget < 1800 ? 'work' : budget < 3600 && bracesSeconds < 3600 ? 'braces' : budget < 3600 ? 'work' : !atLimit && !restDone ? 'break' : !atLimit ? 'work' : null;
   const workNumber = Math.min(3, Math.floor(budget/1800)+1);
-  const key = JSON.stringify({id:p?.id,kind:p?.kind,running,phaseFinished,atLimit,nextKind,workNumber,legacyPaused});
-  if ($('#school-clock-actions').dataset.state !== key) {
-    $('#school-clock-actions').dataset.state = key;
-    const nextLabel = nextKind === 'braces' ? (bracesSeconds ? 'Start braces break · finish your hour' : 'Start 60-minute braces break') : nextKind === 'break' ? 'Start 10-minute rest break' : `Start work session ${workNumber} of 3`;
-    const nextAction = nextKind === 'braces' ? 'school-braces' : nextKind === 'break' ? 'school-break' : 'school-work';
-    $('#school-clock-actions').innerHTML = p && !phaseFinished ? button(running ? 'Pause interval' : p.kind === 'work' ? 'Resume schoolwork' : 'Resume break',running ? 'school-pause' : 'school-start','','primary small') : legacyPaused ? button('Resume schoolwork','school-work','','primary small') : `${running ? button('Pause schoolwork','school-pause','','outline small') : ''}${nextKind ? button(nextLabel,nextAction,'','primary small') : ''}`;
+  let title, caption, actions;
+  if (atLimit) {
+    title = 'Schoolwork is finished for today';
+    caption = 'You’ve reached the 90-minute limit. Your work is saved for another day.';
+    actions = '';
+  } else if (p?.kind === 'break') {
+    title = phaseFinished ? 'Break finished — ready when you are' : `${running ? 'Time for a break' : 'Break paused'} · ${compactTime(p.durationSeconds-phaseSeconds)}`;
+    caption = 'Your work clock is paused. Choose Resume work when you’re ready to begin again.';
+    actions = button('Resume work','school-work','','primary small') + (!phaseFinished ? button(running ? 'Pause break' : 'Resume break',running ? 'school-pause' : 'school-start','','outline small') : '');
+  } else if (p?.kind === 'braces') {
+    title = phaseFinished ? 'Braces timer finished' : `Braces break · ${compactTime(p.durationSeconds-phaseSeconds)}`;
+    caption = 'Your work clock is paused. The braces timer is separate from schoolwork.';
+    actions = button('Resume work','school-work','','primary small') + (!phaseFinished ? button(running ? 'Pause braces break' : 'Resume braces break',running ? 'school-pause' : 'school-start','','outline small') : '');
+  } else if (p && !phaseFinished) {
+    title = `${running ? `Work session ${p.sessionNumber || workNumber} of 3` : 'Work paused'} · ${compactTime(p.durationSeconds-phaseSeconds)}`;
+    caption = running ? 'A 10-minute break starts when this interval ends. Work only resumes when you choose.' : 'Choose Resume work when you’re ready to begin again.';
+    actions = button(running ? 'Pause work' : 'Resume work',running ? 'school-pause' : 'school-work','','primary small');
+  } else {
+    title = p ? 'Time for a break' : budget ? (running ? 'Your schoolwork window is running' : 'Work paused') : '30 minutes of work, then a break';
+    caption = p ? 'Your work clock is paused. Take a breather, then choose Resume work.' : '10-minute breaks are separate from your 90 minutes of schoolwork.';
+    actions = button(budget ? 'Resume work' : 'Start work',running ? 'school-pause' : 'school-work','','primary small');
+    if (running) actions = button('Pause work','school-pause','','primary small');
+  }
+  for (const card of document.querySelectorAll('[data-school-clock]')) {
+    card.classList.toggle('limit',atLimit);
+    card.querySelector('[data-clock-title]').textContent = title;
+    card.querySelector('[data-clock-caption]').textContent = caption;
+    card.querySelector('[data-clock-budget]').textContent = atLimit ? '90 minutes of schoolwork recorded. Unfinished work carries forward.' : `${compactTime(5400-budget)} of schoolwork left · ${Math.floor(budget/1800)} of 3 work sessions complete. Breaks do not count toward the 90 minutes.`;
+    const controls = card.querySelector('[data-clock-actions]');
+    if (controls.innerHTML !== actions) controls.innerHTML = actions;
   }
 }
 
@@ -645,10 +669,10 @@ async function action(actionName, id = '', element) {
     case 'correct': noteDialog({title:'Make a correction.',description:'Your ready report and finished checkoff will reopen. Earlier evidence stays in the history so the assistant or your parent can review what changed.',required:true,submit:'Save correction',path:`${path}/correct`}); break;
     case 'braces-start': await timerAudio.arm(); await api('/api/braces/start','POST',{}); await refresh(true); toast('Timer started. Pause it if you take your braces off.'); break;
     case 'braces-pause': await api('/api/braces/pause','POST',{}); await refresh(true); toast('Timer paused. Your recorded time is saved.'); break;
-    case 'school-start': await timerAudio.arm(); await api('/api/school-clock/start','POST',{}); await refresh(true); toast('Interval resumed.'); break;
+    case 'school-start': await timerAudio.arm(); await api('/api/school-clock/start','POST',{}); await refresh(true); toast('Break resumed. Work time stays paused.'); break;
     case 'school-work':
     case 'school-break':
-    case 'school-braces': await timerAudio.arm(); await api('/api/school-clock/start','POST',{kind:actionName === 'school-work' ? 'work' : actionName === 'school-break' ? 'break' : 'braces'}); await refresh(true); toast(actionName === 'school-braces' ? 'Braces break started. Schoolwork time is paused.' : 'Interval started.'); break;
+    case 'school-braces': await timerAudio.arm(); await api('/api/school-clock/start','POST',{kind:actionName === 'school-work' ? 'work' : actionName === 'school-break' ? 'break' : 'braces'}); await refresh(true); toast(actionName === 'school-braces' ? 'Braces break started. Schoolwork time is paused.' : actionName === 'school-work' ? 'Work timer started.' : 'Break started. Work time stays paused.'); break;
     case 'timer-sound': await timerAudio.toggle(); render(true); break;
     case 'timer-sound-test': if (!timerAudio.enabled) await timerAudio.toggle(); if (await timerAudio.arm()) { timerAudio.chime(); render(true); } else toast('Sound could not start. Check your browser audio settings.',true); break;
     case 'correct-school-time': correctSchoolTime(); break;
@@ -785,5 +809,5 @@ dialog.addEventListener('close', () => { $('#dialog-body').innerHTML = ''; rende
 window.addEventListener('focus', () => refresh());
 setInterval(() => refresh(),5000);
 setInterval(updateTimer,1000);
-window.RiverApp = {api,escape:esc,refresh,openDialog,toast,getState:()=>state,getView:()=>view};
+window.RiverApp = {api,escape:esc,refresh,openDialog,toast,schoolClockCard,updateSchoolClock,getState:()=>state,getView:()=>view};
 (async () => { await window.RiverMemory.ready; timerAudio.enabled = window.RiverMemory.getItem('river-timer-sound') !== 'off'; try { timerAudio.heard = new Set(JSON.parse(window.RiverMemory.getItem('river-timer-heard') || '[]')); } catch {} try { auth = await api('/api/auth'); if (auth.parent && !auth.cloud) { await api('/api/auth/logout','POST',{}); auth.parent = false; } } catch {} await refresh(true); })();

@@ -23,6 +23,8 @@
   function openPracticePage(html,id,navigate=true,preserveScroll=false){
     const scroll=preserveScroll?window.scrollY:0;
     pageQuiz=id;modalQuiz=id;page.innerHTML=html;page.hidden=false;document.body.classList.add('practice-page-open');restoreDrafts(page);
+    page.querySelector('.practice-page-header')?.insertAdjacentHTML('afterend', getApp().schoolClockCard('practice-school-clock'));
+    getApp().updateSchoolClock();
     if(navigate&&location.hash!==`#practice/${id}`)history.pushState({practice:id},'',`#practice/${id}`);
     requestAnimationFrame(()=>{window.scrollTo(0,scroll);if(!preserveScroll)page.focus();});
   }

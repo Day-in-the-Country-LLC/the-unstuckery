@@ -68,29 +68,66 @@ class SchoolTimerTests(unittest.TestCase):
         self.start('work')
         self.assertEqual(self.clock()['phase']['kind'],'work')
 
-    def test_guided_three_sessions_and_two_breaks_take_160_minutes(self):
-        for kind, minutes, spent, next_kind in [
-            ('work',30,1800,'braces'), ('braces',60,1800,'work'),
-            ('work',30,3600,'break'), ('break',10,3600,'work'),
-            ('work',30,5400,None),
-        ]:
-            self.assertEqual(self.clock()['nextKind'],kind)
-            c=self.start()
-            self.assertEqual(c['phase']['durationSeconds'],minutes*60)
-            self.assertEqual(c['running'],kind=='work')
+    def test_two_automatic_ten_minute_breaks_and_explicit_work_resume(self):
+        self.start('work')
+        for session in (1, 2):
+            self.move(30)
+            c = self.clock()
+            self.assertEqual(c['elapsedSeconds'], session * 1800)
+            self.assertEqual(c['phase']['kind'], 'break')
+            self.assertEqual(c['phase']['remainingSeconds'], 600)
+            self.assertFalse(c['running'])
             self.assertTrue(c['phase']['running'])
-            self.move(minutes)
-            c=self.clock()
-            self.assertEqual(c['elapsedSeconds'],spent)
-            self.assertEqual(c['nextKind'],next_kind)
+            self.assertFalse(self.store.view()['braces']['running'])
+            self.assertEqual(self.store.view()['braces']['elapsedSeconds'], 0)
+            self.move(10)
+            c = self.clock()
             self.assertTrue(c['phase']['finished'])
-        self.assertEqual(self.clock()['completedWorkSessions'],3)
-        self.assertEqual(self.clock()['restSeconds'],600)
-        self.assertTrue(self.clock()['limitReached'])
-        self.assertEqual(self.now.hour,18)
-        self.assertEqual(self.now.minute,40)
+            self.assertFalse(c['running'])
+            self.move(20)
+            self.assertEqual(self.clock()['elapsedSeconds'], session * 1800)
+            with self.assertRaisesRegex(AppError, 'Resume work'):
+                self.store.start_school_clock()
+            self.start('work')
+        self.move(30)
+        c = self.clock()
+        self.assertTrue(c['limitReached'])
+        self.assertEqual(c['completedWorkSessions'], 3)
+        self.assertEqual(c['restSeconds'], 1200)
+        self.assertEqual(c['phase']['kind'], 'work')
+        self.assertFalse(c['phase']['running'])
         with self.assertRaises(AppError): self.start('work')
-        with self.assertRaises(AppError): self.start('break')
+
+    def test_late_poll_and_restart_use_work_deadline_for_break(self):
+        ident = self.start('work')['phase']['id']
+        self.move(34)
+        again = RiverStore(self.tmp.name, now=lambda: self.now)
+        try:
+            c = again.view()['schoolClock']
+            self.assertEqual(c['elapsedSeconds'], 1800)
+            self.assertEqual(c['phase']['remainingSeconds'], 360)
+            self.assertEqual(c['phase']['fromWorkId'], ident)
+            again.save()
+        finally:
+            again.db.close()
+        self.store.db.close()
+        self.store = RiverStore(self.tmp.name, now=lambda: self.now)
+        self.move(40)
+        self.assertEqual(self.clock()['elapsedSeconds'], 1800)
+        self.assertEqual(self.clock()['phase']['remainingSeconds'], 0)
+        self.assertFalse(self.clock()['phase']['running'])
+
+    def test_work_pause_requires_explicit_resume_and_break_can_end_early(self):
+        self.start('work'); self.move(10); self.pause()
+        self.move(25)
+        with self.assertRaisesRegex(AppError, 'Resume work'):
+            self.store.start_school_clock()
+        self.assertEqual(self.clock()['elapsedSeconds'], 600)
+        self.start('work'); self.move(20)
+        self.assertEqual(self.clock()['phase']['remainingSeconds'], 600)
+        self.move(3); self.start('work'); self.move(1)
+        self.assertEqual(self.clock()['elapsedSeconds'], 1860)
+        self.assertEqual(self.clock()['restSeconds'], 180)
 
     def test_rest_pause_resume_and_restart_never_spend_work_time(self):
         self.start('work'); self.move(30)
@@ -136,6 +173,8 @@ class SchoolTimerTests(unittest.TestCase):
         c = self.store.day(self.store.today())['schoolClock']
         c.update(elapsedSeconds=63*60, startedAt=self.store.stamp(), running=True)
         self.move(1); self.pause(); self.move(5)
+        with self.assertRaisesRegex(AppError, 'Resume work'):
+            self.store.start_school_clock()
         resumed = self.start()
         self.assertEqual(resumed['phase']['kind'], 'work')
         self.assertEqual(resumed['phase']['remainingSeconds'], 26*60)

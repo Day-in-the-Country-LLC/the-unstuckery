@@ -219,7 +219,8 @@ class RiverStore:
         return b
 
     def school_clock_view(self, clock):
-        from school_timer import phase_view
+        from school_timer import advance, phase_view
+        advance(self, self.day(clock['date']))
         c = copy.deepcopy(clock)
         seconds = c['elapsedSeconds']
         if c['running'] and (not c.get('phase') or c['phase']['kind'] == 'work'):
@@ -233,22 +234,19 @@ class RiverStore:
         c['limitReached'] = c['elapsedSeconds']>=5400
         c['phase'] = phase_view(self, self.day(c['date']))
         p = c['phase']
-        c['restSeconds'] = min(600, c.get('restSeconds', 0) + (max(0, p['elapsedSeconds']-p.get('creditedSeconds', 0)) if p and p['kind'] == 'break' else 0))
+        c['restSeconds'] = c.get('restSeconds', 0) + (max(0, p['elapsedSeconds']-p.get('creditedSeconds', 0)) if p and p['kind'] == 'break' else 0)
         c['restComplete'] = c['restSeconds'] >= 600
         c['completedWorkSessions'] = c['elapsedSeconds'] // 1800
-        c['nextKind'] = ('work' if c['elapsedSeconds'] < 1800 else
-                         'braces' if c['elapsedSeconds'] < 3600 and not self.braces_view(self.day(c['date'])['braces'])['timerElapsed'] else
-                         'work' if c['elapsedSeconds'] < 3600 else
-                         'break' if c['elapsedSeconds'] < 5400 and not c['restComplete'] else
-                         'work' if c['elapsedSeconds'] < 5400 else None)
+        c['nextKind'] = None if c['limitReached'] else ('break' if p and p['kind'] == 'break' and not p['finished'] else 'work')
         c['running'] = c['running'] and (not p or p['kind'] == 'work') and not c['limitReached'] and c['date']==self.today() and (not c['phase'] or c['phase']['running'])
         return c
 
     def start_school_clock(self):
         from school_timer import start, phase_view
         p = phase_view(self, self.day(self.today()))
-        if p and p['kind'] != 'work' and not p['finished']:
-            raise AppError('You are on a break. Choose Start work in Today when you are ready to return.',409)
+        clock = self.school_clock_view(self.day(self.today())['schoolClock'])
+        if (p and (p['kind'] != 'work' or not p['running'])) or (not p and clock['elapsedSeconds'] and not clock['running']):
+            raise AppError('Your work clock is paused. Choose Resume work when you are ready, then submit your answer. Your draft is kept.',409)
         return start(self, 'work')
 
     def view(self, day=None):

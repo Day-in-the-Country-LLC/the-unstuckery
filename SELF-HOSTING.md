@@ -146,3 +146,25 @@ Decisions recheck with that concern as evidence to examine, preserving the origi
 privately. Decisions still owns pass/fail. If reviewers still disagree, the job stops for a
 manual check instead of looping or inventing feedback. `decisionHistory`, `decisionConcern`,
 and `decisionRechecks` are optional private job fields; no database migration is required.
+
+
+## Work and break timers
+
+Each of the first two 30-minute work intervals automatically starts a 10-minute
+rest countdown. Rest starts at the saved work deadline, so refreshing a tab or
+restarting the server does not restart the break. Work stays paused after the
+countdown reaches zero until the student chooses **Resume work**. The same timer
+and controls appear in Today and on the mastery practice page; unsent drafts are
+preserved. Submitting an answer or requesting a saved hint does not silently
+restart a paused work clock. The 90-minute daily work limit remains in place.
+The separate one-hour braces timer starts only through the student's control.
+
+No database migration is needed. Automatic rest phases use the existing `phase`
+shape with optional `automatic`, `fromWorkId`, and `afterWorkSession` fields.
+`restSeconds` is the accumulated rest time and can now exceed 600 seconds because
+there are two rest breaks; it never reduces the schoolwork budget. Existing
+running work phases transition at their original deadlines, paused phases stay
+paused, and existing braces phases keep their saved timer. Parent corrections and
+all completion evidence are preserved. Before rollback, pause the timer and back
+up data/settings; older versions cap the rest display at ten minutes and use the
+previous braces/rest sequence.

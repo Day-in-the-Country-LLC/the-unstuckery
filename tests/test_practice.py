@@ -266,7 +266,7 @@ class PracticeBehaviorTests(unittest.TestCase):
         pending = self.answer(session, "Saved explanation before the time limit.")["attempt"]
         for interval in range(3):
             if interval:
-                self.store.start_school_clock()
+                self.store.transaction(lambda: self.store.mutate("/api/school-clock/start", {"kind":"work"}, "river"))
             self.now += timedelta(minutes=30)
         self.assertTrue(practice_state(self.store)["schoolClock"]["limitReached"])
         with self.assertRaises(PracticeError):

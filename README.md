@@ -28,6 +28,7 @@ Online copies use Google sign-in. Approved parent accounts go to `/parent`; the 
 - Parent creation/import/publication of exercises and review of completed work.
 - Optional read-only Canvas connections, subject to the school's permissions.
 - A private assistant CLI for preparing drafts and recording observed evidence, plus optional delegated exercise publication with a separate planner key. Parent confirmations and account controls stay parent-only.
+- Automatic 10-minute breaks between 30-minute work blocks, with an explicit Resume work button and a separate braces timer.
 - Optional macOS packaging and a Google Drive folder handoff workflow for local installations.
 
 Teacher work remains teacher work: an app checkmark does not submit anything to a school, establish a grade, or replace the school's required submission method. AI feedback is fallible; parents can review and correct it.

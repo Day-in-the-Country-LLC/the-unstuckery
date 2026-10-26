@@ -9,7 +9,7 @@
 @media(max-width:680px){.school-clock{padding:14px;gap:10px;align-items:start}.school-clock .actions{max-width:105px}.school-clock .button{padding:8px 10px;font-size:.75rem}.catalog-grid{grid-template-columns:1fr}.weekly-parent-row{display:block}.weekly-parent-row .actions{margin-top:13px}.week-card{padding:20px}}
 @media(min-width:681px) and (max-height:850px){.site-header{padding-top:18px;padding-bottom:18px}#main{padding-top:24px}.intro{margin-bottom:20px}.intro h1{font-size:2.6rem;margin-bottom:10px}.date-label{margin-bottom:8px}.current-card{padding:24px}.task-heading{margin-bottom:14px}.next-step{margin:16px 0;padding:12px 16px}.current-card .actions{margin-top:16px}}
 
-.school-clock.pomodoro{display:block}.pomodoro #school-clock-title{font-size:1.35rem}.pomodoro #school-budget{margin-top:10px}.pomodoro .actions{margin-top:16px;flex-wrap:wrap}.pomodoro .timer-sound{border-top:1px solid #d6dfca;margin-top:14px;padding-top:8px}.pomodoro .timer-sound p{font-size:.72rem}
+.school-clock.pomodoro{display:block}.pomodoro [data-clock-title]{font-size:1.35rem}.pomodoro [data-clock-budget]{margin-top:10px}.pomodoro .actions{margin-top:16px;flex-wrap:wrap}.pomodoro .timer-sound{border-top:1px solid #d6dfca;margin-top:14px;padding-top:8px}.pomodoro .timer-sound p{font-size:.72rem}
 
 .routine-weekday-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px}.routine-weekday-grid .check-label{margin:4px 0}
 
