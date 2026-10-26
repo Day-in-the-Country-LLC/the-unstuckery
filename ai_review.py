@@ -248,14 +248,15 @@ def public_status(store):
 
 def retry(store, quiz_id, body, actor):
     from practice import PracticeError
-    if actor != 'river': raise PracticeError('Use Student’s quiz to retry an AI review.', 403)
+    if actor not in ('river','manager') or (actor == 'manager' and not getattr(store,'manager_token',None)):
+        raise PracticeError('Use Student’s quiz or authorized assistant management to retry a review.',403)
     if not getattr(store, 'ai_review_enabled', False): raise PracticeError('Automatic review is not enabled.', 409)
     job = jobs(store).get(body.get('attemptId'))
     if not job or job['quizId'] != quiz_id: raise PracticeError('That review was not found.', 404)
     try: context(store, job)
     except AgentError as error: raise PracticeError(str(error),409) from None
     if job['status'] in ACTIVE: return {'ok': True}
-    if job['status'] != 'failed' or job['tries'] >= 3:
+    if job['status'] != 'failed' or (actor != 'manager' and job['tries'] >= 3):
         message = 'Ask your parent or Codex for help with this saved tutoring question.' if job.get('kind') == 'tutor' else 'Ask your parent or Codex to review this saved answer.'
         raise PracticeError(message, 409)
     if job.get('sessionEnded') and job.get('sessionId'):

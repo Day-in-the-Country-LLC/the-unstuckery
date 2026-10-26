@@ -115,7 +115,7 @@ def start(store, kind=None):
     return store.school_clock_view(c)
 
 
-def correct(store, body):
+def correct(store, body, actor='parent'):
     """Remove off-task time without changing break time or completion evidence."""
     from server import AppError, valid_date, clean
     day = valid_date(body.get('date', store.today()))
@@ -141,7 +141,7 @@ def correct(store, body):
                       'elapsedSeconds': 0, 'running': False, 'startedAt': None,
                       'creditedSeconds': 0, 'sessionNumber': min(3, seconds // 1800 + 1)}
     # Leave a rest/braces phase and its underlying timer untouched.
-    store.history(c, 'parent', 'school_time_corrected', {
+    store.history(c, actor, 'school_time_corrected', {
         'date': day, 'removedMinutes': minutes,
         'beforeSeconds': before['elapsedSeconds'], 'afterSeconds': seconds,
         'previousPhase': p, 'note': note,

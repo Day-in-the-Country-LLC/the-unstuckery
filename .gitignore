@@ -5,6 +5,9 @@ data/
 .assistant-token
 .planner-token
 .planner-origin
+.assistant-origin
+.manager-token
+.manager-origin
 .server-lock
 .env
 *.env

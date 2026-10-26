@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private assistant/planner CLI. Neither credential grants parent approval powers."""
+"""Private assistant/planner/manager CLI. Credentials never impersonate a parent."""
 import argparse
 import json
 import os
@@ -32,32 +32,42 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--url',default='http://127.0.0.1:4317')
     p.add_argument('--data-dir',type=Path)
-    p.add_argument('--planner',action='store_true',help='Use the opt-in exercise planner credential, not the assistant token')
+    roles=p.add_mutually_exclusive_group()
+    roles.add_argument('--planner',action='store_true',help='Use the opt-in exercise planner credential')
+    roles.add_argument('--manager',action='store_true',help='Use the separate opt-in assistant manager credential')
     sub=p.add_subparsers(dest='command',required=True)
     state=sub.add_parser('state',help='Read authoritative task state, routine, timers, and rewards')
     state.add_argument('--date')
     sub.add_parser('backlog-state',help='Read unscheduled activities for future planning')
     backlog=sub.add_parser('backlog-add',help='Save an unscheduled activity; never assigns it')
     backlog.add_argument('--json-file',type=Path,required=True)
+    sub.add_parser('reviews',help='Read manager review diagnostics and revisions')
+    sub.add_parser('audit',help='Read the manager action audit')
+    for name in ('task-add','correct-work-time','check-access'):
+        sub.add_parser(name).add_argument('--json-file',type=Path,required=True)
     sub.add_parser('practice-state',help='Read quiz source, current question, attempts and review rubric')
     draft=sub.add_parser('practice-draft',help='Import prepared quizzes as drafts for parent review')
     draft.add_argument('--json-file',type=Path,required=True)
-    for name in ('understanding','submission','report','help','correct','revoke','resolve','practice-review','practice-revoke','practice-update-draft','practice-publish','backlog-edit'):
+    for name in ('understanding','submission','report','help','correct','revoke','resolve','practice-review','practice-revoke','practice-update-draft','practice-publish','backlog-edit','task-update','retry-review'):
         s=sub.add_parser(name)
         s.add_argument('item_id')
         s.add_argument('--json-file',type=Path,required=True,help='JSON evidence body; preserves text without shell quoting')
     args=p.parse_args()
     if args.planner and args.command not in ('state','practice-state','practice-draft','practice-update-draft','practice-publish'):
         p.error('Planner access only reads plans/practice, prepares drafts, and publishes its own exercises.')
-    if args.command=='practice-publish' and not args.planner:
-        p.error('Publication requires the separately enabled --planner credential.')
+    if args.manager and args.command not in ('state','practice-state','practice-draft','practice-update-draft','practice-publish','task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access'):
+        p.error('Manager access is limited to plan/exercise management, timer corrections, review retries, and audit reads.')
+    if args.command in ('task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access') and not args.manager:
+        p.error('This command requires the separate --manager credential.')
+    if args.command=='practice-publish' and not (args.planner or args.manager):
+        p.error('Publication requires a separately enabled --planner or --manager credential.')
     if args.data_dir is None:
         try:
             args.data_dir=installed_data_dir()
         except RuntimeError as exc:
             p.error(str(exc))
     url=urlparse(args.url)
-    scope='planner' if args.planner else 'assistant'
+    scope='manager' if args.manager else 'planner' if args.planner else 'assistant'
     pinned=args.data_dir/f'.{scope}-origin'
     remote=pinned.read_text().strip() if pinned.exists() else ''
     local=url.scheme=='http' and url.hostname in ('127.0.0.1','localhost')
@@ -70,6 +80,9 @@ def main():
         if args.command=='state':
             path=f'/api/{scope}/state'+('?'+urlencode({'date':args.date}) if args.date else '')
             data=None
+        elif args.command in ('reviews','audit'):
+            path=f'/api/manager/{args.command}'
+            data=None
         elif args.command=='backlog-state':
             path='/api/assistant/backlog'
             data=None
@@ -77,7 +90,17 @@ def main():
             path=f'/api/{scope}/practice'
             data=None
         else:
-            if args.command=='backlog-add':
+            if args.command=='check-access':
+                path='/api/manager/check'
+            elif args.command=='task-add':
+                path='/api/manager/tasks'
+            elif args.command=='task-update':
+                path=f'/api/manager/tasks/{args.item_id}'
+            elif args.command=='correct-work-time':
+                path='/api/manager/school-clock/correct'
+            elif args.command=='retry-review':
+                path=f'/api/manager/reviews/{args.item_id}/retry'
+            elif args.command=='backlog-add':
                 path='/api/assistant/backlog'
             elif args.command=='backlog-edit':
                 path=f'/api/assistant/backlog/{args.item_id}'
@@ -86,7 +109,7 @@ def main():
             elif args.command=='practice-update-draft':
                 path=f'/api/{scope}/practice/drafts/{args.item_id}'
             elif args.command=='practice-publish':
-                path=f'/api/planner/practice/quizzes/{args.item_id}/publish'
+                path=f'/api/{scope}/practice/quizzes/{args.item_id}/publish'
             elif args.command.startswith('practice-'):
                 path=f'/api/assistant/practice/attempts/{args.item_id}/{args.command.removeprefix("practice-")}'
             else:
@@ -109,7 +132,7 @@ def main():
         print(e.read().decode(),file=sys.stderr)
         return 1
     except URLError:
-        print('The local app is not running. Open Launch Student.command.',file=sys.stderr)
+        print('Could not connect to the configured app. Check its address, connection, and certificate settings.',file=sys.stderr)
         return 1
     return 0
 

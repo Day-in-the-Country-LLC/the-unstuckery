@@ -348,7 +348,7 @@ def _session_view(store, session, actor="river"):
 
 
 def practice_state(store, actor="river"):
-    if actor not in ("river", "parent", "assistant", "planner"):
+    if actor not in ("river", "parent", "assistant", "planner", "manager"):
         raise PracticeError("That practice access is not available.", 403)
     data = init_practice(store)
     quizzes = []

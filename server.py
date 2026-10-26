@@ -83,6 +83,8 @@ class RiverStore:
         os.chmod(token_path, 0o600)
         from planner import init_planner
         init_planner(self)
+        from manager_access import init_manager
+        init_manager(self)
         os.chmod(self.data_dir / 'river.sqlite3', 0o600)
         from photos import init_schema
         init_schema(self)
@@ -363,6 +365,9 @@ class RiverStore:
         return raw
 
     def mutate(self, path, body, actor):
+        if path.startswith('/api/manager/') or actor == 'manager':
+            from manager_access import mutate
+            return mutate(self, path, body, actor)
         if path.startswith('/api/planner/') or actor == 'planner':
             from planner import mutate
             return mutate(self, path, body, actor)
@@ -761,8 +766,15 @@ class RiverHandler(BaseHTTPRequestHandler):
             bearer=self.headers.get('Authorization','')
             assistant=bool(bearer) and hmac.compare_digest(bearer,'Bearer '+store.assistant_token)
             planner=bool(bearer and store.planner_token) and hmac.compare_digest(bearer,'Bearer '+store.planner_token)
-            if bearer and not (assistant or planner):
+            manager=bool(bearer and store.manager_token) and hmac.compare_digest(bearer,'Bearer '+store.manager_token)
+            if bearer and not (assistant or planner or manager):
                 raise AppError('Assistant access did not match.',401)
+            if manager:
+                from manager_access import allowed_request
+                if not allowed_request(method,path):
+                    raise AppError('Assistant manager access cannot use this route.',403)
+            if path.startswith('/api/manager/') and not manager:
+                raise AppError('This action needs assistant manager access.',401)
             if planner:
                 from planner import allowed_request
                 if not allowed_request(method, path):
@@ -773,12 +785,12 @@ class RiverHandler(BaseHTTPRequestHandler):
                 raise AppError('Assistant access cannot use parent controls.',403)
             if path.startswith('/api/assistant/') and not assistant:
                 raise AppError('This check needs assistant access.',401)
-            if method!='GET' and not (assistant or planner):
+            if method!='GET' and not (assistant or planner or manager):
                 if self.headers.get('X-Student-Request')!='1' or origin!=expected_origin:
                     raise AppError('Open this action from the local app.',403)
             if cloud:
                 public_paths = ('/api/health', '/api/auth', '/api/auth/config', '/api/auth/google', '/api/auth/logout')
-                if path not in public_paths and not (assistant or planner) and not cloud.status(self.session())['role']:
+                if path not in public_paths and not (assistant or planner or manager) and not cloud.status(self.session())['role']:
                     raise AppError('Sign in to The Unstuckery to continue.', 401)
             if path == '/api/canvas/oauth/callback' or path == '/api/parent/canvas' or path.startswith('/api/parent/canvas/'):
                 from canvas import handle_request
@@ -792,7 +804,10 @@ class RiverHandler(BaseHTTPRequestHandler):
                     query=parse_qs(parsed.query)
                     day=query.get('date',[None])[0]
                     photo_view=re.fullmatch(r'/api/tasks/([a-zA-Z0-9_-]+)/photos',path)
-                    if path.startswith('/api/planner/'):
+                    if path.startswith('/api/manager/'):
+                        from manager_access import view
+                        result=store.transaction(lambda:view(store,path,day))
+                    elif path.startswith('/api/planner/'):
                         from planner import view
                         result=store.transaction(lambda:view(store,path,day))
                     elif path.startswith('/api/photos/'):
@@ -886,7 +901,7 @@ class RiverHandler(BaseHTTPRequestHandler):
                     cookie='river_parent=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0'
                     result={'ok':True}
                 else:
-                    actor='planner' if planner else 'parent' if path.startswith('/api/parent/') else 'assistant' if assistant else 'river'
+                    actor='manager' if manager else 'planner' if planner else 'parent' if path.startswith('/api/parent/') else 'assistant' if assistant else 'river'
                     # Assistant may report/help/correct but Student alone checks off schoolwork.
                     if assistant and path.endswith('/complete'):
                         raise AppError('Student checks off schoolwork in Today.',403)

@@ -63,7 +63,17 @@ def mutate(store, path, body, actor):
         raise PracticeError('This action needs enabled planner access.', 403)
     if not allowed_request('POST', path):
         raise PracticeError('Planner access is limited to exercise preparation and publication.', 403)
+    return mutate_exercise(store, path, body, actor)
+
+
+def mutate_exercise(store, path, body, actor):
+    if actor not in ('planner','manager'):
+        raise PracticeError('Use a delegated exercise role.',403)
     data = init_practice(store)
+    if path == '/api/planner/practice/drafts' and actor == 'manager':
+        fields = _prepared(body, store.today())
+        result = _add_drafts(store, fields, actor)
+        return {'ok':True,'quizId':result['quizIds'][0],'revision':1,'published':False}
     if path == '/api/planner/practice/drafts':
         request_id = body.get('requestId')
         if not isinstance(request_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', request_id):
@@ -84,7 +94,7 @@ def mutate(store, path, body, actor):
 
     match = re.fullmatch(r'/api/planner/practice/(drafts|quizzes)/([a-zA-Z0-9_-]+)(/publish)?', path)
     quiz = _quiz(store, match[2])
-    if quiz.get('createdBy') != 'planner':
+    if actor == 'planner' and quiz.get('createdBy') != 'planner':
         raise PracticeError('Planner access can change only exercises created through this planner API.', 403)
     if type(body.get('expectedRevision')) is not int or body['expectedRevision'] != quiz['revision']:
         raise PracticeError('This exercise changed. Read its current revision before continuing.', 409)
@@ -105,8 +115,9 @@ def mutate(store, path, body, actor):
     from server import required
     instructions = required(body, 'instructions')
     publication = {'plannedMinutes': minutes, 'instructions': instructions}
+    publication_key = actor + 'Publication'
     if quiz['published']:
-        if quiz.get('plannerPublication') != publication:
+        if quiz.get(publication_key) != publication:
             raise PracticeError('This exercise is already published. Its saved work cannot be changed here.', 409)
         return {'ok': True, 'quizId': quiz['id'], 'taskId': quiz['taskId'], 'published': True, 'reused': True}
     if quiz.get('taskId') or any(a['quizId'] == quiz['id'] for a in data['attempts']):
@@ -118,13 +129,14 @@ def mutate(store, path, body, actor):
     if planned + minutes > 90:
         raise PracticeError('This practice would exceed the 90-minute daily plan. Choose another date or allowance.', 409)
     _publishable(quiz)
-    quiz.update(published=True, reviewedAt=store.stamp(), publishedBy='planner', plannerPublication=publication)
+    quiz.update(published=True, reviewedAt=store.stamp(), publishedBy=actor)
+    quiz[publication_key] = publication
     task = store.create_task({
         'title': quiz['title'], 'subject': quiz['subject'], 'planDate': quiz['planDate'],
         'scope': 'practice', 'plannedMinutes': minutes, 'instructions': instructions,
         'sourceUrl': quiz['sourceUrl'], 'sourceNote': quiz['sourceNote'],
         'criteria': 'Extra practice — complete in this app. All required responses need tutor approval, then student readiness and parent confirmation. A finished work block does not finish the exercise or submit schoolwork.',
-        'requirements': {'understanding': False, 'submission': False, 'parent': True}}, actor='planner')
+        'requirements': {'understanding': False, 'submission': False, 'parent': True}}, actor=actor)
     quiz['taskId'] = task['id']
     store.task(task['id'])['practiceQuizId'] = quiz['id']
     _history(store, quiz, actor, 'quiz_published', {'revision': quiz['revision'], 'taskId': task['id'], 'delegated': True})

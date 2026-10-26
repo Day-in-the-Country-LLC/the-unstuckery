@@ -168,3 +168,63 @@ paused, and existing braces phases keep their saved timer. Parent corrections an
 all completion evidence are preserved. Before rollback, pause the timer and back
 up data/settings; older versions cap the rest display at ten minutes and use the
 previous braces/rest sequence.
+
+## Optional assistant manager access
+
+For requested plan adjustments and maintenance, a separate **manager** bearer key
+can replace browser sign-in. Enable `UNSTUCKERY_MANAGER_ENABLED=1` in the server's
+private `installation.env` and restart. The app creates owner-only
+`data/.manager-token`. Transfer it privately to an assistant credential directory
+(mode 700, key mode 600), and save the exact HTTPS origin in `.manager-origin`
+there. Never paste either key into chat, browser URLs, student material, or Git.
+Manager access is disabled by default and independent of planner and human access.
+
+Use `assistant.py --manager --data-dir /private/manager-credentials --url https://learning.example.com COMMAND`. `state --date YYYY-MM-DD`, `practice-state`,
+`reviews`, and `audit` read the plan, private practice context, review diagnostics,
+and the manager audit. They exclude login/session secrets and provider keys.
+
+Every write requires a unique `requestId` and a plain-language `reason` explaining
+the requested adjustment. Retry an uncertain result with the **same ID and exactly
+the same body**. The saved result is returned without repeating the change; reuse
+with different content is rejected. Writes are recorded as `manager` with a
+credential identifier, never as a parent's approval or a student's action. The
+key holder is trusted to act on the parent's requests; a reason string itself
+cannot prove a conversation took place.
+
+Commands accepting `--json-file`:
+
+| Command | JSON fields in addition to `requestId` and `reason` |
+| --- | --- |
+| `check-access` | None; saves a connection-check audit event without touching student work. |
+| `practice-draft` | Complete mastery exercise JSON, as for planner drafts. |
+| `practice-update-draft QUIZ_ID` | Complete exercise JSON and integer `expectedRevision`. Only unpublished, unstarted exercises with no linked task. |
+| `practice-publish QUIZ_ID` | Integer `expectedRevision`, `plannedMinutes` (1–90), and student-facing `instructions`. |
+| `task-add` | `expectedPlanRevision` from `state`; `title`, `subject`, `instructions`, `sourceNote`, `scope` (`assignment` or `work_block`), `planDate`, `plannedMinutes`; optional `dueDate`, `assignmentId`, `sourceUrl`, `criteria`. Preserve teacher/source evidence in `sourceNote`; use the exercise workflow for extra practice. |
+| `task-update TASK_ID` | `expectedRevision` from the task's `managerRevision`, plus `changes` containing only title, subject, instructions, materials (`sourceUrl`/`sourceNote`), dates, or planned minutes. |
+| `correct-work-time` | `expectedRevision` from `schoolClock.managerRevision`, `date`, and positive whole `removeMinutes`. Credits time back and pauses work; no braces correction. |
+| `retry-review ATTEMPT_ID` | `expectedRevision` from `reviews.jobs[ID].managerRevision`. Retries a failed current review, preserving the answer and grading decision. |
+
+Read a fresh revision before an update. A concurrent change returns 409. All plan
+writes retain the 90-minute daily cap. Managers can revise older unpublished
+drafts regardless of which planning role created them, but cannot overwrite a
+published exercise, saved answer, grading rubric already in use, or completed/
+reported-ready work. Task adjustments preserve learning evidence; rescheduling
+keeps the same exercise and task rather than duplicating practice. An explicit
+manager retry can exceed the student's three-retry safeguard; it never resets the
+attempt count, bypasses source/version checks, chooses a grade, or silently loops.
+
+The manager key cannot use parent/student routes, log in as a person, confirm
+completion or chores, award prizes, change accounts or LLM keys, submit answers,
+start timers, or execute/deploy code. Code deployment uses the installation's
+separate authenticated infrastructure connection; never expose a command-execution
+endpoint through this application token. No background scheduling is enabled.
+
+Revoke by setting `UNSTUCKERY_MANAGER_ENABLED=0` and restarting. Rotate by stopping
+the app, moving the old `.manager-token` to a protected backup, and restarting with
+manager access enabled to generate a fresh key; privately replace the client key.
+The old key then stops working. Disable access before rolling back the feature.
+No SQL migration: optional private `managerRequests` and `managerAudit` fields
+store idempotency results and audit events, with `managerPublication` on published
+exercises and manager attribution in existing history records. Preserve these
+fields and student work in backups. The original planner token keeps its narrower
+permissions and remains independently revocable.
