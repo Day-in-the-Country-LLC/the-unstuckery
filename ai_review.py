@@ -410,14 +410,16 @@ class ReviewWorker:
                             self.change(ident, status='failed', message='The answer check needs a parent review. Your answer is saved.')
                         return
                     instructions, tool = decisions_review.FEEDBACK_INSTRUCTIONS, decisions_review.feedback_tool()
-                    initial_input = json.dumps(dict(payload, decisionAssessment=assessment))
+                    initial_input = json.dumps(decisions_review.coaching_payload(payload, assessment))
                     self.change(ident, status='creating', model=config['model'], startedAt=time.time(),
                                 message='Preparing feedback to help you revise…')
                 session = client.request('POST', '/agents/sessions', {
                     'agent': {'model': config['model'], 'instructions': instructions, 'multi_agent': {'enabled': False},
                               'tools': [tool] if pending.get('kind') == 'tutor' else [tool, {'type':'function','name':'unable_to_review',
                                 'description':'Report missing or conflicting grading context without guessing.',
-                                'parameters':{'type':'object','properties':{},'additionalProperties':False}}]},
+                                'parameters':{'type':'object','properties':{'reason':{'type':'string',
+                                    'description':'Brief private explanation of the missing or conflicting grading context.'}},
+                                    'additionalProperties':False}}]},
                     'environment': {'type': 'none'}, 'input': initial_input, 'stream': False})
                 session_id = session.get('id', '')
                 if not re.fullmatch(r'[a-zA-Z0-9_-]+', session_id): raise AgentError('The review service did not return a session ID.')
@@ -485,11 +487,18 @@ class ReviewWorker:
                 job.update(status='completed', message='Tutor reply is ready.', completedAt=self.store.stamp())
                 outcome = {'success': True, 'output': 'Tutor reply saved. Stop now.'}
             elif action.get('name') == 'unable_to_review':
-                message = ('The AI needs a parent check of this review. Your answer is saved.'
+                issue = action.get('arguments', {})
+                if isinstance(issue, str): issue = json.loads(issue)
+                from practice import _text
+                if not isinstance(issue, dict): raise PracticeError('Use an object for the review issue.')
+                reason = _text(issue.get('reason', ''), 'private review issue', limit=2000)
+                message = ('The AI could not finish this review. Your answer is saved. Retry the review or ask Codex for help.'
                            if job.get('reviewMode') == 'decisions' else
                            'The AI needs clearer source material or grading criteria. Ask your parent or Codex.')
-                job.update(status='failed', message=message)
-                outcome = {'success': True, 'output': 'Saved the request for manual review.'}
+                # The worker cancels this terminal session below. Retry must start a fresh session,
+                # not poll the cancelled one and leave the student stuck again.
+                job.update(status='failed', message=message, sessionEnded=True, reviewIssue=reason)
+                outcome = {'success': True, 'output': 'Saved the review issue. Stop now.'}
             elif action.get('name') != ('save_photo_review' if job.get('kind')=='photo' else
                     ('save_decision_pass' if job.get('decisionReview', {}).get('correct') else 'save_review_feedback')
                     if job.get('reviewMode') == 'decisions' else 'save_review'):

@@ -135,3 +135,8 @@ already-running reviews finish on their original path. No database migration is 
 the mode and fixed assessment. After a restart, saved decisions resume without another grading call. An interrupted
 outbound request requires explicit retry. Restore `OPENAI_REVIEW_MODE=agents` for new reviews to opt out; drain active
 jobs before rolling back source. Back up private data and settings as described above.
+
+Review recovery: failed Decisions assessments do not carry placeholder pass feedback into coaching.
+Older stored assessments are sanitized when sent to the coach, without changing their grade.
+If coaching cannot finish, its private diagnostic reason is saved and an explicit retry starts a
+fresh coaching session using the same decision. This does not create a parent approval requirement.

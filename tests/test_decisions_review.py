@@ -68,6 +68,8 @@ class DecisionsWorkerTests(unittest.TestCase):
         self.assertEqual(req['agent']['model'],'gpt-6.1-sol')
         self.assertEqual(req['agent']['tools'][0]['name'],'save_review_feedback')
         self.assertFalse(payload['decisionAssessment']['correct'])
+        self.assertNotIn('feedback', payload['decisionAssessment'])
+        self.assertEqual(jobs(self.store)[a['id']]['decisionReview']['feedback'], '')
         grading=json.loads(self.fake.calls[0][2]['input'])
         self.assertNotIn('earlierAttempts',grading)
         worker.step();self.assertEqual(a['grade'],'incorrect')
@@ -117,6 +119,39 @@ class DecisionsWorkerTests(unittest.TestCase):
         self.assertEqual(a['grade'],'incorrect')
         self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),1)
 
+    def test_old_contradictory_feedback_is_removed_from_coaching_context(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1)
+        _,_,payload,fingerprint=context(self.store,jobs(self.store)[a['id']])
+        assessment=decisions.evaluate(self.fake,payload)
+        assessment['feedback']='Pass — your answer meets this step’s requirements.'
+        self.store.transaction(lambda:jobs(self.store)[a['id']].update(
+            status='decided',reviewMode='decisions',fingerprint=fingerprint,decisionReview=assessment,tries=1))
+        self.fake.calls.clear();worker.step()
+        req=self.fake.calls[-1][2]
+        supplied=json.loads(req['input'])['decisionAssessment']
+        self.assertFalse(supplied['correct']);self.assertNotIn('feedback',supplied)
+        self.assertNotIn('Pass —',req['input'])
+        self.assertFalse(any(c[1]=='/decisions' for c in self.fake.calls))
+        worker.step();self.assertEqual(a['grade'],'incorrect')
+
+    def test_unable_to_review_retains_pending_and_retry_uses_fresh_coaching_session(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
+        action=self.fake.session['required_actions'][0]
+        action.update(name='unable_to_review',arguments={'reason':'PRIVATE conflicting rubric detail'})
+        worker.step();job=jobs(self.store)[a['id']]
+        self.assertEqual(a['grade'],'pending');self.assertTrue(job['sessionEnded'])
+        self.assertNotIn('parent check',job['message'])
+        self.assertNotIn('PRIVATE',json.dumps(public_status(self.store)))
+        retry(self.store,self.id,{'attemptId':a['id']},'river')
+        self.assertIsNone(job['sessionId']);self.assertEqual(job['status'],'queued')
+        action.update(name='save_review_feedback',call_id='recovered',arguments={
+            'feedback':'Not yet. Find the missing piece in the source.', 'hint':'Which detail is missing?'})
+        worker.step();worker.step()
+        self.assertEqual(a['grade'],'incorrect')
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),1)
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),2)
+        self.assertIsNone(self.task['parentConfirmed'])
+
     def test_stale_decision_cannot_override_manual_review(self):
         worker=self.worker();a=self.answer(1)
         original=self.fake.request
@@ -149,6 +184,7 @@ class DecisionsWorkerTests(unittest.TestCase):
         self.assertEqual(a['grade'],'incorrect')
         self.assertIn('What detail',a['feedback'])
         self.assertFalse(a['writingReview']['coverage']['Topic'])
+        self.assertEqual(jobs(self.store)[a['id']]['decisionReview']['feedback'], '')
 
     def test_effort_is_separate_and_preserved_on_pass(self):
         worker=self.worker();self.quiz['questions'][0]['effortPolicy']='three-genuine-efforts'
