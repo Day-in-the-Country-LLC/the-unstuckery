@@ -140,3 +140,9 @@ Review recovery: failed Decisions assessments do not carry placeholder pass feed
 Older stored assessments are sanitized when sent to the coach, without changing their grade.
 If coaching cannot finish, its private diagnostic reason is saved and an explicit retry starts a
 fresh coaching session using the same decision. This does not create a parent approval requirement.
+
+When coaching identifies a conflict in a failed assessment, the worker requests one automatic
+Decisions recheck with that concern as evidence to examine, preserving the original decision
+privately. Decisions still owns pass/fail. If reviewers still disagree, the job stops for a
+manual check instead of looping or inventing feedback. `decisionHistory`, `decisionConcern`,
+and `decisionRechecks` are optional private job fields; no database migration is required.

@@ -138,6 +138,7 @@ class DecisionsWorkerTests(unittest.TestCase):
         worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
         action=self.fake.session['required_actions'][0]
         action.update(name='unable_to_review',arguments={'reason':'PRIVATE conflicting rubric detail'})
+        jobs(self.store)[a['id']]['decisionRechecks']=1
         worker.step();job=jobs(self.store)[a['id']]
         self.assertEqual(a['grade'],'pending');self.assertTrue(job['sessionEnded'])
         self.assertNotIn('parent check',job['message'])
@@ -151,6 +152,40 @@ class DecisionsWorkerTests(unittest.TestCase):
         self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),1)
         self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),2)
         self.assertIsNone(self.task['parentConfirmed'])
+
+    def test_coaching_disagreement_rechecks_once_with_decisions_and_preserves_audit(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
+        original=copy.deepcopy(jobs(self.store)[a['id']]['decisionReview'])
+        action=self.fake.session['required_actions'][0]
+        action.update(name='unable_to_review',arguments={'reason':'PRIVATE The requested detail is already in the current answer.'})
+        worker.step();job=jobs(self.store)[a['id']]
+        self.assertEqual(a['grade'],'pending');self.assertEqual(job['status'],'queued')
+        self.assertEqual(job['decisionRechecks'],1);self.assertIsNone(job['sessionId'])
+        self.assertEqual(job['decisionHistory'][0]['assessment'],original)
+        self.assertNotIn('PRIVATE',json.dumps(public_status(self.store)))
+        self.assertTrue(any(c[1].endswith('/events') and c[2]['events'][0]['type']=='agent.session.input.cancel' for c in self.fake.calls))
+        self.fake.verdict='pass';worker.step()
+        self.assertEqual(a['grade'],'correct')
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),2)
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),1)
+        req=next(c[2] for c in reversed(self.fake.calls) if c[1]=='/decisions')
+        state=json.loads(req['input'])
+        self.assertIn('requested detail',state['reviewConcern']);self.assertNotIn('earlierAttempts',state)
+        self.assertIsNone(self.task['parentConfirmed'])
+
+    def test_recheck_can_still_fail_and_disagreement_does_not_loop(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
+        action=self.fake.session['required_actions'][0]
+        action.update(name='unable_to_review',arguments={'reason':'Reviewers disagree.'})
+        worker.step();worker.step()
+        action['call_id']='second-session-conflict'
+        worker.step()
+        self.assertEqual(a['grade'],'pending')
+        job=jobs(self.store)[a['id']]
+        self.assertEqual(job['status'],'failed');self.assertEqual(job['decisionRechecks'],1)
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),2)
+        before=len(self.fake.calls);worker.step()
+        self.assertFalse(any(c[1]=='/agents/sessions' for c in self.fake.calls[before:]))
 
     def test_stale_decision_cannot_override_manual_review(self):
         worker=self.worker();a=self.answer(1)

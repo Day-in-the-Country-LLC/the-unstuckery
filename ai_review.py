@@ -396,7 +396,7 @@ class ReviewWorker:
                     if assessment is None:
                         self.change(ident, model=decisions_review.MODEL, promptVersion=decisions_review.VERSION,
                                     message='Checking your answer…')
-                        assessment = decisions_review.evaluate(client, payload)
+                        assessment = decisions_review.evaluate(client, payload, review_concern=pending.get('decisionConcern'))
                         with self.store.lock:
                             _, _, _, current_fingerprint = context(self.store, pending)
                         if current_fingerprint != fingerprint:
@@ -440,7 +440,9 @@ class ReviewWorker:
                     client.request('POST', '/agents/sessions/' + session_id + '/events', {'events': [{
                         'type': 'agent.session.input.tool_result', 'turn_id': action['turn_id'], 'call_id': action['call_id'], **result}]})
                 finally:
-                    with self.store.lock: terminal = jobs(self.store)[ident]['status'] not in ACTIVE
+                    with self.store.lock:
+                        current = jobs(self.store)[ident]
+                        terminal = current['status'] not in ACTIVE or current.get('sessionId') != session_id
                     if terminal: self.cancel(client, session_id)
                 if terminal: return
             if session.get('status') in ('failed', 'idle'):
@@ -492,13 +494,27 @@ class ReviewWorker:
                 from practice import _text
                 if not isinstance(issue, dict): raise PracticeError('Use an object for the review issue.')
                 reason = _text(issue.get('reason', ''), 'private review issue', limit=2000)
-                message = ('The AI could not finish this review. Your answer is saved. Retry the review or ask Codex for help.'
-                           if job.get('reviewMode') == 'decisions' else
-                           'The AI needs clearer source material or grading criteria. Ask your parent or Codex.')
-                # The worker cancels this terminal session below. Retry must start a fresh session,
-                # not poll the cancelled one and leave the student stuck again.
-                job.update(status='failed', message=message, sessionEnded=True, reviewIssue=reason)
-                outcome = {'success': True, 'output': 'Saved the review issue. Stop now.'}
+                if (reason and job.get('reviewMode') == 'decisions'
+                        and job.get('decisionReview', {}).get('correct') is False
+                        and job.get('decisionRechecks', 0) == 0):
+                    # One evidence-based second look, still graded by Decisions. Keep the original
+                    # decision for audit; never silently convert disagreement into student failure.
+                    job.setdefault('decisionHistory', []).append({
+                        'at': self.store.stamp(), 'assessment': copy.deepcopy(job['decisionReview']), 'concern': reason})
+                    if job.get('sessionId'): job.setdefault('retiredSessions', []).append(job['sessionId'])
+                    job.pop('decisionReview')
+                    job.update(status='queued', sessionId=None, sessionEnded=False, decisionRechecks=1,
+                               decisionConcern=reason, reviewIssue=reason,
+                               message='Double-checking the review against this step’s requirements…')
+                    outcome = {'success': True, 'output': 'The saved assessment will be rechecked. Stop now.'}
+                else:
+                    message = ('The AI could not finish this review. Your answer is saved. Retry the review or ask Codex for help.'
+                               if job.get('reviewMode') == 'decisions' else
+                               'The AI needs clearer source material or grading criteria. Ask your parent or Codex.')
+                    # The worker cancels this terminal session below. Retry must start a fresh session,
+                    # not poll the cancelled one and leave the student stuck again.
+                    job.update(status='failed', message=message, sessionEnded=True, reviewIssue=reason)
+                    outcome = {'success': True, 'output': 'Saved the review issue. Stop now.'}
             elif action.get('name') != ('save_photo_review' if job.get('kind')=='photo' else
                     ('save_decision_pass' if job.get('decisionReview', {}).get('correct') else 'save_review_feedback')
                     if job.get('reviewMode') == 'decisions' else 'save_review'):
