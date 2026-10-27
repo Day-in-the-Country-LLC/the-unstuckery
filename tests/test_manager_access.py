@@ -319,3 +319,18 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['removedQuestionIds'],['q2'])
         self.assertEqual(s.state['managerAudit'][-1]['actor'],'manager')
         self.assertNotIn(s.manager_token,result.stdout+result.stderr)
+
+    def test_failed_pending_review_does_not_block_withdrawal_or_change_grade(self):
+        s,quiz,task=self.step_fixture()
+        self.step_answer(quiz,'q1',True)
+        pending=self.step_answer(quiz,'q2')
+        job={'quizId':quiz['id'],'attemptId':pending['id'],'status':'failed','message':'Synthetic review failure.'}
+        s.state.setdefault('aiReviewJobs',{})[pending['id']]=copy.deepcopy(job)
+        before=copy.deepcopy(pending)
+        code,result=self.call(f"/api/manager/practice/quizzes/{quiz['id']}/remove-steps",self.body(expectedRevision=1,questionIds=['q2']))
+        self.assertEqual(code,200,result)
+        self.assertEqual(result['nextQuestionId'],'q3')
+        self.assertEqual(pending,before)
+        self.assertEqual(pending['grade'],'pending')
+        self.assertEqual(s.state['aiReviewJobs'][pending['id']],job)
+        self.assertEqual(result['progress']['pendingReviews'],0)

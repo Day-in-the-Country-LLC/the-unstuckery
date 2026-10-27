@@ -202,7 +202,7 @@ def remove_steps(store, quiz_id, body, reason, request_id):
     Only an unfinished sequential exercise with no later saved responses can be
     changed. Surviving question versions and sequence contexts stay intact.
     """
-    from mastery import status, progress
+    from mastery import status, progress, latest_attempts
     from practice import _valid_attempts
     if set(body)-{'expectedRevision','questionIds'}:
         raise PracticeError('Step removal accepts only expectedRevision and questionIds.')
@@ -226,8 +226,14 @@ def remove_steps(store, quiz_id, body, reason, request_id):
     if not any(q['required'] for q in keep):
         raise PracticeError('Keep at least one required practice step.',409)
     rows=status(store,quiz)['questions']
-    if any(r['questionId'] in chosen and r['status'] in ('approved','pending','revisit','scheduled_review') for r in rows):
-        raise PracticeError('Remove only unfinished steps with no pending review.',409)
+    if any(r['questionId'] in chosen and r['status'] in ('approved','revisit','scheduled_review') for r in rows):
+        raise PracticeError('Remove only unfinished steps.',409)
+    latest=latest_attempts(store,quiz)
+    for ident in chosen:
+        attempt=latest.get(ident)
+        if (attempt and attempt['grade']=='pending'
+                and store.state.get('aiReviewJobs',{}).get(attempt['id'],{}).get('status')!='failed'):
+            raise PracticeError('Wait for the pending review before removing this step.',409)
     from ai_review import ACTIVE
     if any(j.get('quizId')==quiz_id and j.get('status') in ACTIVE for j in store.state.get('aiReviewJobs',{}).values()):
         raise PracticeError('Wait for this exercise’s active AI review before removing a step.',409)

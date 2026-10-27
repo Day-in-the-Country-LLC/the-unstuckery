@@ -217,9 +217,12 @@ records both quiz/task history and the manager audit. It never turns a failed
 answer into a pass. An appended shared-background amendment tells future tutor
 and review calls that the withdrawn requirements no longer apply, even if older
 planning text describes the original sequence. At least one required step must remain. It rejects approved
-steps, pending/active reviews, completed/reported work, and changes that would
+steps, active reviews, unresolved pending reviews, completed/reported work, and changes that would
 invalidate saved responses to later steps. Remaining question versions, attempts,
 feedback, tutor messages, task identity, timers, and parent controls are preserved.
+A pending answer whose AI job has already failed may be archived with its withdrawn
+step; its grade remains pending and the failed job remains in history. Withdrawing
+a requirement does not require repairing its review or declaring the answer passed.
 Task adjustments preserve learning evidence; rescheduling
 keeps the same exercise and task rather than duplicating practice. An explicit
 manager retry can exceed the student's three-retry safeguard; it never resets the
