@@ -199,6 +199,7 @@ Commands accepting `--json-file`:
 | `practice-draft` | Complete mastery exercise JSON, as for planner drafts. |
 | `practice-update-draft QUIZ_ID` | Complete exercise JSON and integer `expectedRevision`. Only unpublished, unstarted exercises with no linked task. |
 | `practice-publish QUIZ_ID` | Integer `expectedRevision`, `plannedMinutes` (1–90), and student-facing `instructions`. |
+| `practice-remove-steps QUIZ_ID` | Integer `expectedRevision` and a list of distinct `questionIds`. Archives explicitly withdrawn unfinished requirements in published sequential practice; preserves saved answers, grades, and surviving question versions. |
 | `task-add` | `expectedPlanRevision` from `state`; `title`, `subject`, `instructions`, `sourceNote`, `scope` (`assignment` or `work_block`), `planDate`, `plannedMinutes`; optional `dueDate`, `assignmentId`, `sourceUrl`, `criteria`. Preserve teacher/source evidence in `sourceNote`; use the exercise workflow for extra practice. |
 | `task-update TASK_ID` | `expectedRevision` from the task's `managerRevision`, plus `changes` containing only title, subject, instructions, materials (`sourceUrl`/`sourceNote`), dates, or planned minutes. |
 | `correct-work-time` | `expectedRevision` from `schoolClock.managerRevision`, `date`, and positive whole `removeMinutes`. Credits time back and pauses work; no braces correction. |
@@ -207,8 +208,19 @@ Commands accepting `--json-file`:
 Read a fresh revision before an update. A concurrent change returns 409. All plan
 writes retain the 90-minute daily cap. Managers can revise older unpublished
 drafts regardless of which planning role created them, but cannot overwrite a
-published exercise, saved answer, grading rubric already in use, or completed/
-reported-ready work. Task adjustments preserve learning evidence; rescheduling
+saved answer, grading rubric already in use, or completed/reported-ready work.
+Published exercise content cannot be rewritten. The narrow `practice-remove-steps`
+operation can withdraw unfinished requirements when requested by the parent. It
+archives each original question and reason in private `archivedSteps`, keeps
+unused concept metadata in `archivedConcepts`, increments the quiz revision, and
+records both quiz/task history and the manager audit. It never turns a failed
+answer into a pass. An appended shared-background amendment tells future tutor
+and review calls that the withdrawn requirements no longer apply, even if older
+planning text describes the original sequence. At least one required step must remain. It rejects approved
+steps, pending/active reviews, completed/reported work, and changes that would
+invalidate saved responses to later steps. Remaining question versions, attempts,
+feedback, tutor messages, task identity, timers, and parent controls are preserved.
+Task adjustments preserve learning evidence; rescheduling
 keeps the same exercise and task rather than duplicating practice. An explicit
 manager retry can exceed the student's three-retry safeguard; it never resets the
 attempt count, bypasses source/version checks, chooses a grade, or silently loops.

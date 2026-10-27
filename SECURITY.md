@@ -15,6 +15,9 @@ Keep OS and Python dependencies updated, restrict administration access, and mai
 Optional assistant manager access uses a third, separate private bearer key and
 an explicit `/api/manager/` route allowlist. It adds audited unfinished-plan edits,
 work-time corrections and failed-review retries to delegated exercise publishing.
+It can also archive a parent's explicitly withdrawn unfinished steps in sequential
+practice, preserving original questions and saved responses without assigning a
+pass or rewriting an active rubric. Revision and concurrency checks apply.
 It does not confer parent/student identity, completion approval, grading, account,
 credential, reward, or command-execution powers. Writes require reasons, durable
 idempotency IDs, and current revisions for existing records. See Self-hosting for

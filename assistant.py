@@ -48,16 +48,16 @@ def main():
     sub.add_parser('practice-state',help='Read quiz source, current question, attempts and review rubric')
     draft=sub.add_parser('practice-draft',help='Import prepared quizzes as drafts for parent review')
     draft.add_argument('--json-file',type=Path,required=True)
-    for name in ('understanding','submission','report','help','correct','revoke','resolve','practice-review','practice-revoke','practice-update-draft','practice-publish','backlog-edit','task-update','retry-review'):
+    for name in ('understanding','submission','report','help','correct','revoke','resolve','practice-review','practice-revoke','practice-update-draft','practice-publish','practice-remove-steps','backlog-edit','task-update','retry-review'):
         s=sub.add_parser(name)
         s.add_argument('item_id')
         s.add_argument('--json-file',type=Path,required=True,help='JSON evidence body; preserves text without shell quoting')
     args=p.parse_args()
     if args.planner and args.command not in ('state','practice-state','practice-draft','practice-update-draft','practice-publish'):
         p.error('Planner access only reads plans/practice, prepares drafts, and publishes its own exercises.')
-    if args.manager and args.command not in ('state','practice-state','practice-draft','practice-update-draft','practice-publish','task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access'):
+    if args.manager and args.command not in ('state','practice-state','practice-draft','practice-update-draft','practice-publish','practice-remove-steps','task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access'):
         p.error('Manager access is limited to plan/exercise management, timer corrections, review retries, and audit reads.')
-    if args.command in ('task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access') and not args.manager:
+    if args.command in ('task-add','task-update','correct-work-time','retry-review','reviews','audit','check-access','practice-remove-steps') and not args.manager:
         p.error('This command requires the separate --manager credential.')
     if args.command=='practice-publish' and not (args.planner or args.manager):
         p.error('Publication requires a separately enabled --planner or --manager credential.')
@@ -110,6 +110,8 @@ def main():
                 path=f'/api/{scope}/practice/drafts/{args.item_id}'
             elif args.command=='practice-publish':
                 path=f'/api/{scope}/practice/quizzes/{args.item_id}/publish'
+            elif args.command=='practice-remove-steps':
+                path=f'/api/manager/practice/quizzes/{args.item_id}/remove-steps'
             elif args.command.startswith('practice-'):
                 path=f'/api/assistant/practice/attempts/{args.item_id}/{args.command.removeprefix("practice-")}'
             else:

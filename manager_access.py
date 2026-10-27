@@ -16,7 +16,7 @@ from practice import PracticeError, init_practice, practice_state, _quiz
 PREFIX = '/api/manager'
 CAPABILITIES = ['read_plan', 'read_practice', 'read_review_diagnostics', 'create_exercises',
                 'edit_unpublished_exercises', 'publish_exercises', 'create_school_tasks',
-                'adjust_task_plan', 'correct_work_time', 'retry_failed_reviews', 'read_audit']
+                'adjust_task_plan', 'remove_unfinished_steps', 'correct_work_time', 'retry_failed_reviews', 'read_audit']
 TASK_FIELDS = {'title', 'subject', 'instructions', 'planDate', 'dueDate', 'plannedMinutes', 'sourceUrl', 'sourceNote'}
 
 
@@ -49,7 +49,7 @@ def allowed_request(method, path):
         return path in (PREFIX+'/state', PREFIX+'/practice', PREFIX+'/reviews', PREFIX+'/audit')
     return method == 'POST' and bool(re.fullmatch(
         PREFIX+r'/(?:check|tasks(?:/[a-zA-Z0-9_-]+)?|school-clock/correct|reviews/[a-zA-Z0-9_-]+/retry|'
-        r'practice/(?:drafts(?:/[a-zA-Z0-9_-]+)?|quizzes/[a-zA-Z0-9_-]+/publish))', path))
+        r'practice/(?:drafts(?:/[a-zA-Z0-9_-]+)?|quizzes/[a-zA-Z0-9_-]+/(?:publish|remove-steps)))', path))
 
 
 def plan_revision(store):
@@ -119,7 +119,7 @@ def mutate(store, path, body, actor):
     requests[request_id] = {'digest':digest,'result':copy.deepcopy(result)}
     store.state.setdefault('managerAudit',[]).append({'at':store.stamp(),'actor':'manager',
         'credentialId':store.manager_key_id,'requestId':request_id,'action':path,'reason':reason,
-        'result':{k:result[k] for k in ('taskId','quizId','attemptId','removedMinutes') if k in result}})
+        'result':{k:result[k] for k in ('taskId','quizId','attemptId','removedMinutes','removedQuestionIds') if k in result}})
     return result
 
 
@@ -128,6 +128,9 @@ def _apply(store,path,body,reason,request_id):
     if path == PREFIX+'/check':
         if body:raise PracticeError('An access check accepts only requestId and reason.')
         return {'ok':True,'actor':'manager','credentialId':store.manager_key_id,'capabilities':CAPABILITIES}
+    match=re.fullmatch(PREFIX+r'/practice/quizzes/([a-zA-Z0-9_-]+)/remove-steps',path)
+    if match:
+        return remove_steps(store,match[1],body,reason,request_id)
     if path.startswith(PREFIX+'/practice/'):
         from planner import mutate_exercise
         # The shared exercise workflow receives the real actor, never parent authority.
@@ -191,3 +194,69 @@ def _apply(store,path,body,reason,request_id):
         store.history(job,'manager','review_retry_requested',{'reason':reason,'requestId':request_id})
         return {'ok':True,'attemptId':match[1],'status':job['status']}
     raise PracticeError('Unsupported manager update.',403)
+
+
+def remove_steps(store, quiz_id, body, reason, request_id):
+    """Archive a withdrawn requirement without grading or rewriting saved work.
+
+    Only an unfinished sequential exercise with no later saved responses can be
+    changed. Surviving question versions and sequence contexts stay intact.
+    """
+    from mastery import status, progress
+    from practice import _valid_attempts
+    if set(body)-{'expectedRevision','questionIds'}:
+        raise PracticeError('Step removal accepts only expectedRevision and questionIds.')
+    quiz=_quiz(store,quiz_id)
+    if type(body.get('expectedRevision')) is not int or body['expectedRevision']!=quiz['revision']:
+        raise PracticeError('This exercise changed. Read its current revision before removing steps.',409)
+    ids=body.get('questionIds')
+    if (not isinstance(ids,list) or not 1<=len(ids)<=20
+            or any(not isinstance(i,str) or not re.fullmatch(r'[a-zA-Z0-9_-]+',i) for i in ids)
+            or len(set(ids))!=len(ids)):
+        raise PracticeError('Provide distinct questionIds to remove.')
+    if not quiz['published'] or quiz.get('reviewMode')!='mastery' or not quiz.get('sequential') or not quiz.get('taskId'):
+        raise PracticeError('Step removal is for published, sequential mastery practice.',409)
+    task=store.task(quiz['taskId'])
+    if quiz.get('parentConfirmed') or any(task.get(k) for k in ('reportedAt','parentConfirmed','completedAt')):
+        raise PracticeError('Completed or reported-ready practice cannot be changed here.',409)
+    questions=quiz['questions'];chosen=set(ids)
+    if not chosen.issubset({q['id'] for q in questions}):
+        raise PracticeError('A selected step is no longer in this exercise.',409)
+    keep=[q for q in questions if q['id'] not in chosen]
+    if not any(q['required'] for q in keep):
+        raise PracticeError('Keep at least one required practice step.',409)
+    rows=status(store,quiz)['questions']
+    if any(r['questionId'] in chosen and r['status'] in ('approved','pending','revisit','scheduled_review') for r in rows):
+        raise PracticeError('Remove only unfinished steps with no pending review.',409)
+    from ai_review import ACTIVE
+    if any(j.get('quizId')==quiz_id and j.get('status') in ACTIVE for j in store.state.get('aiReviewJobs',{}).values()):
+        raise PracticeError('Wait for this exercise’s active AI review before removing a step.',409)
+    first=min(i for i,q in enumerate(questions) if q['id'] in chosen)
+    later={q['id'] for q in questions[first:] if q['id'] not in chosen}
+    if any(a['questionId'] in later for a in _valid_attempts(store,quiz)):
+        raise PracticeError('Later steps already have saved responses; their sequence cannot be changed here.',409)
+    at=store.stamp()
+    quiz.setdefault('archivedSteps',[]).extend({'question':copy.deepcopy(q),'position':i+1,
+        'removedAt':at,'removedBy':'manager','reason':reason,'requestId':request_id}
+        for i,q in enumerate(questions) if q['id'] in chosen)
+    concept_ids={q['conceptId'] for q in keep}
+    quiz.setdefault('archivedConcepts',[]).extend(copy.deepcopy(c) for c in quiz['concepts'] if c['id'] not in concept_ids)
+    quiz['concepts']=[c for c in quiz['concepts'] if c['id'] in concept_ids]
+    quiz['questions']=keep
+    quiz['revision']+=1
+    # Shared background can describe the original sequence. Keep it for history,
+    # while making the parent's withdrawal explicit to future tutor/review calls.
+    prompts='; '.join(q['prompt'] for q in questions if q['id'] in chosen)
+    amendment=(f'\n\nParent-requested adjustment ({at}): Removed from this exercise: {prompts}\n'
+               f'Reason: {reason}\nThere are now {len(keep)} active steps. Removed requirements are no longer '
+               'part of this practice, including where older background describes them. Review and tutor '
+               'only the remaining current step; do not ask the learner to complete a removed requirement.')
+    quiz['sourceMaterial']+=amendment
+    quiz['sourceNote']+=f'\n\nAdjustment ({at}): {len(ids)} unfinished step(s) removed at parent request; {len(keep)} active steps remain. {reason}'
+    details={'questionIds':ids,'reason':reason,'requestId':request_id,'revision':quiz['revision']}
+    store.history(quiz,'manager','practice_steps_removed',details)
+    store.history(task,'manager','practice_steps_removed',dict(details,quizId=quiz_id))
+    remaining=status(store,quiz)['questions']
+    return {'ok':True,'quizId':quiz_id,'taskId':task['id'],'revision':quiz['revision'],
+            'removedQuestionIds':ids,'progress':progress(store,quiz)[0],
+            'nextQuestionId':next((r['questionId'] for r in remaining if r['status'] not in ('approved','scheduled_review')),None)}
