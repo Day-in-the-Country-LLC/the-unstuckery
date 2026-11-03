@@ -433,9 +433,11 @@ class ReviewWorker:
                     initial_input = json.dumps(decisions_review.coaching_payload(payload, assessment))
                     self.change(ident, status='creating', model=config['model'], startedAt=time.time(),
                                 message='Preparing feedback to help you revise…')
+                result_tools=[tool]
+                if review_mode=='decisions':result_tools.append(decisions_review.correction_tool())
                 session = client.request('POST', '/agents/sessions', {
                     'agent': {'model': config['model'], 'instructions': instructions, 'multi_agent': {'enabled': False},
-                              'tools': [tool] if pending.get('kind') == 'tutor' else [tool, {'type':'function','name':'unable_to_review',
+                              'tools': [tool] if pending.get('kind') == 'tutor' else result_tools+[{'type':'function','name':'unable_to_review',
                                 'description':'Report missing or conflicting grading context without guessing.',
                                 'parameters':{'type':'object','properties':{'reason':{'type':'string',
                                     'description':'Brief private explanation of the missing or conflicting grading context.'}},
@@ -535,9 +537,9 @@ class ReviewWorker:
                     # not poll the cancelled one and leave the student stuck again.
                     job.update(status='failed', message=message, sessionEnded=True, reviewIssue=reason)
                     outcome = {'success': True, 'output': 'Saved the review issue. Stop now.'}
-            elif action.get('name') != ('save_photo_review' if job.get('kind')=='photo' else
-                    ('save_decision_pass' if job.get('decisionReview', {}).get('correct') else 'save_review_feedback')
-                    if job.get('reviewMode') == 'decisions' else 'save_review'):
+            elif action.get('name') not in (('save_photo_review',) if job.get('kind')=='photo' else
+                    (('save_decision_pass',) if job.get('decisionReview', {}).get('correct') else ('save_review_feedback','correct_review_to_pass'))
+                    if job.get('reviewMode') == 'decisions' else ('save_review',)):
                 raise AgentError('The AI requested an action outside quiz review.')
             else:
                 body = action.get('arguments')
@@ -550,11 +552,14 @@ class ReviewWorker:
                     outcome={'success':True,'output':'Photo review saved. Stop now.'}
                     job['calls'][call_key]=outcome
                     return outcome
+                correction=None
                 if job.get('reviewMode') == 'decisions':
-                    from decisions_review import merge_feedback
+                    from decisions_review import merge_feedback,pass_correction
                     assessment = job.get('decisionReview')
                     if not assessment: raise PracticeError('The answer needs its decision before feedback.')
-                    body = copy.deepcopy(assessment) if assessment['correct'] else merge_feedback(assessment, body)
+                    if action.get('name')=='correct_review_to_pass':
+                        body,correction=pass_correction(assessment,body)
+                    else:body = copy.deepcopy(assessment) if assessment['correct'] else merge_feedback(assessment, body)
                 allowed = {'correct','independent','rubricEvidence','feedback','hint','help','writingReview','revisionGoals','writingMechanics','effortReview'}
                 if set(body) - allowed: raise PracticeError('Only assessment fields may be submitted.')
                 question=next(q for q in quiz['questions'] if q['id']==attempt['questionId'])
@@ -563,6 +568,12 @@ class ReviewWorker:
                     assess_mechanics(quiz,body,body.get('correct') is True,required=True)
                 from mastery import review
                 review(self.store, quiz, attempt, body, 'assistant', 'review')
+                if correction is not None:
+                    job['decisionCorrection']=dict(correction,at=self.store.stamp(),model=job.get('model'),
+                        actor='feedback_tutor',assessment=copy.deepcopy(body))
+                    job.setdefault('decisionHistory',[]).append({'at':self.store.stamp(),'actor':'feedback_tutor',
+                        'action':'corrected_to_pass','assessment':copy.deepcopy(job['decisionReview']),
+                        'correction':copy.deepcopy(job['decisionCorrection'])})
                 job.update(status='completed', message='AI review saved.', completedAt=self.store.stamp())
                 outcome = {'success': True, 'output': 'Review saved. Stop now.'}
             job['calls'][call_key] = outcome

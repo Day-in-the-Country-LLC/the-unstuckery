@@ -70,7 +70,7 @@ def view(store, path, day=None):
         from ai_review import public_status
         result = public_status(store)
         keys = ('attemptId','quizId','questionId','kind','status','message','tries','createdAt','completedAt',
-                'reviewIssue','reviewMode','decisionReview','decisionRechecks','decisionCycle')
+                'reviewIssue','reviewMode','decisionReview','decisionRechecks','decisionCycle','decisionCorrection')
         result['jobs'] = {ident:dict({k:copy.deepcopy(j.get(k)) for k in keys}, managerRevision=revision(j))
                           for ident,j in store.state.get('aiReviewJobs',{}).items()}
         return result

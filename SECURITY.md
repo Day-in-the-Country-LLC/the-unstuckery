@@ -10,6 +10,11 @@ Optional planner access uses its own owner-only bearer key and an explicit HTTP 
 
 An LLM provider receives the submitted response and relevant exercise/tutoring context to provide feedback. Review the provider's account settings and terms. API keys and private rubrics stay server-side; the tutor is instructed not to reveal answer keys, but generated feedback still requires human judgment.
 
+In Decisions mode, passing answers advance without a tutor review. A feedback tutor invoked for a failed
+answer may correct it to pass with recorded rubric evidence and a reason; the original assessment is
+preserved. Current-answer/version checks and writing validation still apply. Ordinary tutoring chat and
+manager credentials do not gain direct grading powers from this correction tool.
+
 Keep OS and Python dependencies updated, restrict administration access, and maintain private backups. Local mode is loopback-only and intentionally has different authentication; it must never be exposed publicly.
 
 Optional assistant manager access uses a third, separate private bearer key and

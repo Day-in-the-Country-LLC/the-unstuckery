@@ -1,4 +1,4 @@
-"""Synthetic Decisions transport: routing, immutable grades, recovery and writing gates."""
+"""Synthetic Decisions transport: direct passes, justified corrections, and writing gates."""
 import copy
 import json
 from pathlib import Path
@@ -75,12 +75,81 @@ class DecisionsWorkerTests(unittest.TestCase):
         worker.step();self.assertEqual(a['grade'],'incorrect')
         self.assertIn('weather',a['feedback'])
 
-    def test_sol_cannot_override_a_failed_decision(self):
+    def test_failure_feedback_cannot_sneak_in_a_grade_change(self):
         worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
         self.fake.session['required_actions'][0]['arguments']['correct']=True
         worker.step()
         self.assertEqual(self.store.state['practice']['attempts'][-1]['grade'],'pending')
         self.assertEqual(jobs(self.store)[a['id']]['failures'],1)
+
+    def test_failure_tutor_can_correct_to_pass_without_another_decisions_call(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1,usedHelp=True);worker.step()
+        original=copy.deepcopy(jobs(self.store)[a['id']]['decisionReview'])
+        requested=self.fake.calls[-1][2]['agent']['tools']
+        self.assertIn('correct_review_to_pass',[t['name'] for t in requested])
+        action=self.fake.session['required_actions'][0]
+        action.update(name='correct_review_to_pass',arguments={
+            'reason':'PRIVATE The saved answer already includes the requested detail.',
+            'rubricEvidence':'PRIVATE The detail connects the claim to the supplied passage.'})
+        worker.step();job=jobs(self.store)[a['id']]
+        self.assertEqual(a['grade'],'correct');self.assertFalse(a['independent'])
+        self.assertEqual(job['decisionReview'],original)
+        self.assertEqual(job['decisionHistory'][-1]['actor'],'feedback_tutor')
+        self.assertTrue(job['decisionCorrection']['assessment']['correct'])
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),1)
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),1)
+        self.assertIsNone(self.task['completedAt']);self.assertIsNone(self.task['parentConfirmed'])
+        before=copy.deepcopy(self.store.state)
+        self.assertTrue(worker.apply(a['id'],action)['success']);self.assertEqual(self.store.state,before)
+        late=dict(action,call_id='late-correction')
+        self.assertFalse(worker.apply(a['id'],late)['success']);self.assertEqual(self.store.state,before)
+        from practice import practice_state
+        self.assertNotIn('PRIVATE',json.dumps(practice_state(self.store,'river'))+json.dumps(public_status(self.store)))
+
+    def test_tutor_correction_needs_evidence_and_cannot_touch_a_pass(self):
+        for assessment,body in [({'correct':True},{'reason':'Error','rubricEvidence':'Detail'}),
+                                ({'correct':False},{'reason':'','rubricEvidence':'Detail'}),
+                                ({'correct':False},{'reason':'Error'}),
+                                ({'correct':False},{'reason':'Error','rubricEvidence':'Detail','correct':True})]:
+            with self.assertRaises(PracticeError):decisions.pass_correction(assessment,body)
+        worker=self.worker();a=self.answer(1);worker.step()
+        before=copy.deepcopy(self.store.state)
+        result=worker.apply(a['id'],{'turn_id':'synthetic','call_id':'late','name':'correct_review_to_pass',
+            'arguments':{'reason':'Error','rubricEvidence':'Detail'}})
+        self.assertFalse(result['success']);self.assertEqual(self.store.state,before)
+        self.assertEqual([c[1] for c in self.fake.calls],['/decisions'])
+
+    def test_tutor_writing_correction_requires_complete_valid_checks(self):
+        worker=self.worker();self.fake.verdict='fail'
+        self.quiz['questions'][0]['writingRequirements']={'minQualifiedSentences':2,'requiredCoverage':['Topic'],'expectedSentenceRange':'2'}
+        a=self.answer(1,answer='Trees give shade. Their roots hold soil.')
+        self.fake.overrides['coverage_0']=False;worker.step()
+        original=copy.deepcopy(jobs(self.store)[a['id']]['decisionReview'])
+        action={'turn_id':'synthetic-correction','call_id':'missing-writing','name':'correct_review_to_pass',
+                'arguments':{'reason':'Coverage was overlooked.','rubricEvidence':'The two sentences explain tree benefits.'}}
+        self.assertFalse(worker.apply(a['id'],action)['success'])
+        self.assertNotIn('decisionCorrection',jobs(self.store)[a['id']])
+        action['call_id']='coverage-still-fails'
+        action['arguments'].update(writingReview=copy.deepcopy(original['writingReview']),
+                                   writingMechanics=copy.deepcopy(original['writingMechanics']))
+        self.assertFalse(worker.apply(a['id'],action)['success'])
+        self.assertNotIn('decisionCorrection',jobs(self.store)[a['id']])
+        action['call_id']='valid-writing-correction'
+        action['arguments']['writingReview']['coverage']['Topic']=True
+        self.assertTrue(worker.apply(a['id'],action)['success'])
+        saved=self.store.state['practice']['attempts'][-1]
+        self.assertEqual(saved['grade'],'correct');self.assertEqual(saved['answer'],a['answer'])
+        self.assertEqual(saved['writingReview']['qualifyingSentences'],2)
+        self.assertEqual(jobs(self.store)[a['id']]['decisionReview'],original)
+        self.assertIsNone(self.store.task(self.task['id'])['completedAt'])
+
+    def test_stale_tutor_correction_cannot_grade_changed_answer_context(self):
+        worker=self.worker();self.fake.verdict='fail';a=self.answer(1);worker.step()
+        self.fake.session['required_actions'][0].update(name='correct_review_to_pass',arguments={
+            'reason':'The detail was overlooked.','rubricEvidence':'The saved answer supplies the detail.'})
+        self.quiz['questions'][0]['rubric']='Changed synthetic rubric.'
+        worker.step()
+        self.assertEqual(a['grade'],'pending');self.assertNotIn('decisionCorrection',jobs(self.store)[a['id']])
 
     def test_refusal_malformed_and_missing_context_do_not_fail_student_or_call_sol(self):
         for broken in ({}, {'answers':[{'name':'verdict','type':'refusal'}]},

@@ -120,8 +120,12 @@ For migration from an earlier local installation, make a consistent SQLite backu
 Set `OPENAI_REVIEW_MODE=decisions` in the private review settings to grade mastery submissions through
 [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions), using `gpt-6-luna` and the same API key.
 Passing answers save and advance without a Sol call. Failed answers receive coaching using `OPENAI_REVIEW_MODEL`
-(default `gpt-6.1-sol`), with the complete relevant answer/feedback history. The coaching tool cannot change the
-saved grade. The tutor button also sees that history and uses the configured coaching model. Photo help remains
+(default `gpt-6.1-sol`), with the complete relevant answer/feedback history. When that tutor finds the failed
+answer already meets the unchanged rubric, it can use `correct_review_to_pass` with a reason and specific
+rubric evidence. The original decision and correction remain in private history. A correction to writing
+must supply full sentence, coverage, evidence and mechanics checks, all validated before saving a pass.
+The tutor is never called to review a Decisions pass. The tutor button also sees that history and uses the
+configured coaching model, but ordinary tutoring chat cannot change grades. Photo help remains
 on that model. API refusals, missing context and invalid responses leave the answer pending for retry or parent review.
 
 Writing retains its sentence, coverage, evidence and frozen mechanics checks: typed boundary decisions preserve
@@ -132,7 +136,7 @@ before enabling this mode for your installation. The API is currently in beta an
 
 The existing `agents` mode is the default for compatibility. A job records its selected mode when it starts;
 already-running reviews finish on their original path. No database migration is needed: new private job fields store
-the mode and fixed assessment. After a restart, saved decisions resume without another grading call. An interrupted
+the mode, original assessment, and any justified tutor correction. After a restart, saved decisions resume without another grading call. An interrupted
 outbound request requires explicit retry. Restore `OPENAI_REVIEW_MODE=agents` for new reviews to opt out; drain active
 jobs before rolling back source. Back up private data and settings as described above.
 
@@ -141,11 +145,13 @@ Older stored assessments are sanitized when sent to the coach, without changing 
 If coaching cannot finish, its private diagnostic reason is saved and an explicit retry starts a
 fresh coaching session using the same decision. This does not create a parent approval requirement.
 
-When coaching identifies a conflict in a failed assessment, the worker requests one automatic
-Decisions recheck with that concern as evidence to examine, preserving the original decision
-privately. Decisions still owns pass/fail. If reviewers still disagree, the job stops for a
-manual check instead of looping or inventing feedback. `decisionHistory`, `decisionConcern`,
-and `decisionRechecks` are optional private job fields; no database migration is required.
+When the failure is mistaken, the feedback tutor should correct it to pass directly with evidence;
+this does not call Decisions again or grade any other answer. A correction preserves the original
+`decisionReview`, records `decisionCorrection` and `decisionHistory`, and does not approve parent
+completion. If context is insufficient for either honest feedback or a pass correction, the existing
+`unable_to_review` path permits one bounded Decisions recheck, then stops rather than looping.
+`decisionHistory`, `decisionCorrection`, `decisionConcern`, and `decisionRechecks` are optional private
+job fields; no database migration is required. Back up these records with the rest of student history.
 
 
 ## Work and break timers
