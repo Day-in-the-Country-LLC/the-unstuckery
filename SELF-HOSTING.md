@@ -237,7 +237,8 @@ For an unresolved Decisions/feedback disagreement, an explicitly requested manag
 reassessment archives the disputed assessment, concern, and old recheck count in
 `decisionHistory`, increments `decisionCycle`, and runs a fresh Decisions check
 using the latest recorded concern. It does not edit the answer, rubric, or grade;
-only the new Decisions result can grade it. Each cycle still permits at most one
+only the resulting AI review (a Decisions result or justified failure-tutor correction)
+can grade it. Each cycle still permits at most one
 automatic recheck. Ordinary/student retries reuse the decision as before; there
 is no automatic repeated reset. Network failures and completed reviews cannot use
 this disagreement-recovery option. No SQL migration is needed.
