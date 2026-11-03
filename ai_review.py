@@ -251,6 +251,10 @@ def retry(store, quiz_id, body, actor):
     if actor not in ('river','manager') or (actor == 'manager' and not getattr(store,'manager_token',None)):
         raise PracticeError('Use Student’s quiz or authorized assistant management to retry a review.',403)
     if not getattr(store, 'ai_review_enabled', False): raise PracticeError('Automatic review is not enabled.', 409)
+    reassess = body.get('reassessDecision', False)
+    if type(reassess) is not bool: raise PracticeError('Choose whether to request a fresh decision.')
+    if reassess and actor != 'manager':
+        raise PracticeError('A disputed decision needs an explicit assistant manager recovery.',403)
     job = jobs(store).get(body.get('attemptId'))
     if not job or job['quizId'] != quiz_id: raise PracticeError('That review was not found.', 404)
     try: context(store, job)
@@ -259,12 +263,27 @@ def retry(store, quiz_id, body, actor):
     if job['status'] != 'failed' or (actor != 'manager' and job['tries'] >= 3):
         message = 'Ask your parent or Codex for help with this saved tutoring question.' if job.get('kind') == 'tutor' else 'Ask your parent or Codex to review this saved answer.'
         raise PracticeError(message, 409)
+    if reassess:
+        if (job.get('reviewMode') != 'decisions' or not job.get('reviewIssue')
+                or job.get('decisionReview',{}).get('correct') is not False
+                or job.get('decisionRechecks',0) < 1 or not job.get('sessionEnded')):
+            raise PracticeError('Fresh decision recovery requires a saved unresolved reviewer disagreement.',409)
+        # Preserve the disputed assessment and its bounded recheck cycle. A manager
+        # may explicitly request a new cycle, but cannot choose its grade.
+        job.setdefault('decisionHistory',[]).append({'at':store.stamp(),
+            'assessment':copy.deepcopy(job['decisionReview']),'concern':job['reviewIssue'],
+            'actor':'manager','action':'decision_reassessment_requested',
+            'decisionCycle':job.get('decisionCycle',0),'decisionRechecks':job['decisionRechecks']})
+        job.pop('decisionReview')
+        job.update(decisionCycle=job.get('decisionCycle',0)+1,decisionRechecks=0,
+                   decisionConcern=job['reviewIssue'])
     if job.get('sessionEnded') and job.get('sessionId'):
         job.setdefault('retiredSessions', []).append(job['sessionId'])
         job.update(sessionId=None, sessionEnded=False)
     # Resume an existing session after a connection failure; never silently create a second one.
     if job.get('sessionId'): job['tries'] += 1
-    retry_message = 'Trying the saved tutoring question again.' if job.get('kind') == 'tutor' else 'Trying the saved review again.'
+    retry_message = ('Rechecking the saved answer against this step’s requirements.' if reassess else
+                     'Trying the saved tutoring question again.' if job.get('kind') == 'tutor' else 'Trying the saved review again.')
     job.update(status='running' if job.get('sessionId') else 'queued', message=retry_message,
                startedAt=time.time(), failures=0)
     return {'ok': True}

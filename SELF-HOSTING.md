@@ -203,7 +203,7 @@ Commands accepting `--json-file`:
 | `task-add` | `expectedPlanRevision` from `state`; `title`, `subject`, `instructions`, `sourceNote`, `scope` (`assignment` or `work_block`), `planDate`, `plannedMinutes`; optional `dueDate`, `assignmentId`, `sourceUrl`, `criteria`. Preserve teacher/source evidence in `sourceNote`; use the exercise workflow for extra practice. |
 | `task-update TASK_ID` | `expectedRevision` from the task's `managerRevision`, plus `changes` containing only title, subject, instructions, materials (`sourceUrl`/`sourceNote`), dates, or planned minutes. |
 | `correct-work-time` | `expectedRevision` from `schoolClock.managerRevision`, `date`, and positive whole `removeMinutes`. Credits time back and pauses work; no braces correction. |
-| `retry-review ATTEMPT_ID` | `expectedRevision` from `reviews.jobs[ID].managerRevision`. Retries a failed current review, preserving the answer and grading decision. |
+| `retry-review ATTEMPT_ID` | `expectedRevision` from `reviews.jobs[ID].managerRevision`. Retries a failed current review, preserving the answer and grading decision by default. Optional boolean `reassessDecision: true` requests a fresh Decisions cycle only for a saved unresolved reviewer disagreement after the automatic recheck. |
 
 Read a fresh revision before an update. A concurrent change returns 409. All plan
 writes retain the 90-minute daily cap. Managers can revise older unpublished
@@ -227,6 +227,14 @@ Task adjustments preserve learning evidence; rescheduling
 keeps the same exercise and task rather than duplicating practice. An explicit
 manager retry can exceed the student's three-retry safeguard; it never resets the
 attempt count, bypasses source/version checks, chooses a grade, or silently loops.
+For an unresolved Decisions/feedback disagreement, an explicitly requested manager
+reassessment archives the disputed assessment, concern, and old recheck count in
+`decisionHistory`, increments `decisionCycle`, and runs a fresh Decisions check
+using the latest recorded concern. It does not edit the answer, rubric, or grade;
+only the new Decisions result can grade it. Each cycle still permits at most one
+automatic recheck. Ordinary/student retries reuse the decision as before; there
+is no automatic repeated reset. Network failures and completed reviews cannot use
+this disagreement-recovery option. No SQL migration is needed.
 
 The manager key cannot use parent/student routes, log in as a person, confirm
 completion or chores, award prizes, change accounts or LLM keys, submit answers,

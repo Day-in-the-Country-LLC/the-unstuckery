@@ -198,6 +198,61 @@ class DecisionsWorkerTests(unittest.TestCase):
         self.assertEqual(a['grade'],'incorrect')
         self.assertEqual(jobs(self.store)[a['id']]['status'],'failed')
 
+    def disputed_review(self):
+        worker=self.worker();self.fake.verdict='fail';attempt=self.answer(1);worker.step()
+        action=self.fake.session['required_actions'][0]
+        action.update(name='unable_to_review',arguments={'reason':'The saved answer includes the requested detail.'})
+        worker.step();worker.step()
+        action['call_id']='recheck-disagreement';worker.step()
+        self.store.manager_token='synthetic-manager'
+        return worker,attempt,jobs(self.store)[attempt['id']]
+
+    def test_explicit_manager_reassessment_archives_dispute_and_uses_new_decision(self):
+        worker,a,job=self.disputed_review()
+        before=copy.deepcopy(a);old=copy.deepcopy(job['decisionReview']);tries=job['tries']
+        with self.assertRaises(PracticeError):
+            retry(self.store,self.id,{'attemptId':a['id'],'reassessDecision':True},'river')
+        self.store.transaction(lambda:retry(self.store,self.id,{'attemptId':a['id'],'reassessDecision':True},'manager'))
+        self.assertEqual(a,before);self.assertEqual(a['grade'],'pending')
+        self.assertNotIn('decisionReview',job);self.assertEqual(job['tries'],tries)
+        self.assertEqual(job['decisionCycle'],1);self.assertEqual(job['decisionRechecks'],0)
+        self.assertEqual(job['decisionHistory'][-1]['assessment'],old)
+        self.assertEqual(job['decisionHistory'][-1]['decisionRechecks'],1)
+        self.assertEqual(job['decisionHistory'][-1]['actor'],'manager')
+        self.assertIsNone(job['sessionId']);self.assertEqual(job['status'],'queued')
+        self.fake.verdict='pass';worker.step()
+        self.assertEqual(a['grade'],'correct')
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),3)
+        self.assertEqual(sum(c[1]=='/agents/sessions' for c in self.fake.calls),2)
+        state=json.loads(next(c[2]['input'] for c in reversed(self.fake.calls) if c[1]=='/decisions'))
+        self.assertEqual(state['answer'],before['answer'])
+        self.assertIn('requested detail',state['reviewConcern'])
+        self.assertIsNone(self.task['parentConfirmed'])
+
+    def test_manager_reassessment_can_fail_and_has_one_automatic_recheck(self):
+        worker,a,job=self.disputed_review()
+        self.store.transaction(lambda:retry(self.store,self.id,{'attemptId':a['id'],'reassessDecision':True},'manager'))
+        worker.step()
+        self.fake.session['required_actions'][0]['call_id']='new-cycle-first-conflict'
+        worker.step();worker.step()
+        self.fake.session['required_actions'][0]['call_id']='new-cycle-second-conflict'
+        worker.step()
+        self.assertEqual(a['grade'],'pending')
+        self.assertEqual(job['status'],'failed');self.assertEqual(job['decisionRechecks'],1)
+        self.assertEqual(job['decisionCycle'],1)
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),4)
+        before=sum(c[1]=='/decisions' for c in self.fake.calls);worker.step()
+        self.assertEqual(sum(c[1]=='/decisions' for c in self.fake.calls),before)
+
+    def test_reassessment_rejects_ordinary_failure_and_non_boolean_option(self):
+        worker=self.worker();self.fake.error=AgentError('Synthetic network failure.');a=self.answer(1);worker.step()
+        self.store.manager_token='synthetic-manager'
+        for option in (True,'true'):
+            with self.assertRaises(PracticeError):
+                self.store.transaction(lambda:retry(self.store,self.id,{'attemptId':a['id'],'reassessDecision':option},'manager'))
+        self.assertEqual(jobs(self.store)[a['id']]['status'],'failed')
+        self.assertEqual(a['grade'],'pending')
+
     def test_writing_pass_accounts_for_exact_text_without_sol(self):
         worker=self.worker()
         self.quiz['questions'][0]['writingRequirements']={'minQualifiedSentences':2,'requiredCoverage':['Topic'],'expectedSentenceRange':'2'}

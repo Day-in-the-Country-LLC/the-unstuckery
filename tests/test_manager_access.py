@@ -178,6 +178,27 @@ class ManagerTests(unittest.TestCase):
         fresh=self.call('/api/manager/reviews')[1]['jobs'][a['id']]['managerRevision']
         self.assertEqual(self.call('/api/manager/reviews/'+a['id']+'/retry',self.body(expectedRevision=fresh))[0],409)
 
+    def test_explicit_decision_reassessment_is_audited_and_idempotent(self):
+        ident=self.draft();self.publish(ident);s=self.server.store;s.ai_review_enabled=True
+        s.transaction(lambda:s.mutate('/api/practice/mastery/'+ident+'/answer',{'questionId':'q','answer':'Synthetic response.'},'river'))
+        a=s.state['practice']['attempts'][-1];job=s.state['aiReviewJobs'][a['id']]
+        s.transaction(lambda:job.update(status='failed',tries=3,sessionEnded=True,sessionId='synthetic-session',
+            reviewMode='decisions',decisionReview={'correct':False},reviewIssue='Synthetic criterion conflict.',decisionRechecks=1))
+        attempt=copy.deepcopy(a)
+        info=self.call('/api/manager/reviews')[1]['jobs'][a['id']]
+        body=self.body(expectedRevision=info['managerRevision'],reassessDecision=True)
+        path='/api/manager/reviews/'+a['id']+'/retry'
+        code,result=self.call(path,body);self.assertEqual(code,200,result)
+        self.assertEqual(a,attempt);self.assertNotIn('decisionReview',job)
+        self.assertEqual(job['decisionHistory'][-1]['assessment'],{'correct':False})
+        self.assertEqual(job['decisionCycle'],1);self.assertEqual(job['decisionRechecks'],0)
+        self.assertEqual(job['tries'],3)
+        self.assertEqual(self.call(path,body)[1]['reused'],True)
+        self.assertEqual(job['decisionCycle'],1)
+        events=[e for e in self.call('/api/manager/audit')[1]['events'] if e['requestId']==body['requestId']]
+        self.assertEqual(len(events),1)
+        self.assertTrue(job['history'][-1]['details']['reassessDecision'])
+
     def test_plan_budget_creation_validation_and_completion_lock(self):
         state=self.state()
         fields={'title':'Verified synthetic task','subject':'Test','scope':'assignment','instructions':'Follow the teacher directions.',

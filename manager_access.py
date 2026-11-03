@@ -70,7 +70,7 @@ def view(store, path, day=None):
         from ai_review import public_status
         result = public_status(store)
         keys = ('attemptId','quizId','questionId','kind','status','message','tries','createdAt','completedAt',
-                'reviewIssue','reviewMode','decisionReview','decisionRechecks')
+                'reviewIssue','reviewMode','decisionReview','decisionRechecks','decisionCycle')
         result['jobs'] = {ident:dict({k:copy.deepcopy(j.get(k)) for k in keys}, managerRevision=revision(j))
                           for ident,j in store.state.get('aiReviewJobs',{}).items()}
         return result
@@ -184,14 +184,15 @@ def _apply(store,path,body,reason,request_id):
         return {'ok':True,'taskId':task['id'],'task':task_view(store,task)}
     match=re.fullmatch(PREFIX+r'/reviews/([a-zA-Z0-9_-]+)/retry',path)
     if match:
-        if set(body)-{'expectedRevision'}:raise PracticeError('Retry accepts only expectedRevision.')
+        if set(body)-{'expectedRevision','reassessDecision'}:raise PracticeError('Retry accepts expectedRevision and optional reassessDecision.')
         from ai_review import jobs,retry
         job=jobs(store).get(match[1])
         if not job:raise PracticeError('That review was not found.',404)
         expect(body,job)
         if job['status']!='failed':raise PracticeError('Only a failed saved review can be retried.',409)
-        retry(store,job['quizId'],{'attemptId':match[1]},'manager')
-        store.history(job,'manager','review_retry_requested',{'reason':reason,'requestId':request_id})
+        retry(store,job['quizId'],{'attemptId':match[1],'reassessDecision':body.get('reassessDecision',False)},'manager')
+        store.history(job,'manager','review_retry_requested',{'reason':reason,'requestId':request_id,
+            'reassessDecision':body.get('reassessDecision',False)})
         return {'ok':True,'attemptId':match[1],'status':job['status']}
     raise PracticeError('Unsupported manager update.',403)
 
